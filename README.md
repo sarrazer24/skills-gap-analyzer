@@ -30,3 +30,91 @@ An AI-powered web application that analyzes job descriptions and identifies skil
    ```bash
    git clone https://github.com/yourusername/skills-gap-analyzer.git
    cd skills-gap-analyzer
+Install dependencies
+
+bash
+pip install -r requirements.txt
+Run the application
+
+bash
+streamlit run app.py
+Open your browser and go to http://localhost:8501
+
+📁 Project Structure
+text
+skills-gap-analyzer/
+├── app.py                 # Main application entry point
+├── requirements.txt       # Python dependencies
+├── config/               # Configuration files
+│   ├── constants.py      # App constants and settings
+├── components/           # UI components
+│   ├── header.py         # Header component
+│   ├── sidebar.py        # Sidebar input component
+│   ├── skills_tab.py     # Skills analysis tab
+│   ├── associations_tab.py # Skill associations tab
+│   ├── gap_analysis_tab.py # Gap analysis tab
+│   └── learning_path_tab.py # Learning path tab
+├── data/                 # Data files
+│   └── sample_data.py    # Sample job data and associations
+└── utils/                # Utility functions
+    └── styling.py        # CSS styling and themes
+🎓 Machine Learning Features
+Association Rules Mining: Discover which skills frequently appear together
+
+Clustering Analysis: Group similar jobs based on skill requirements
+
+Skill Extraction: NLP-based skill identification from job descriptions
+
+Gap Scoring: Calculate match percentage between user skills and job requirements
+
+🌐 Deployment
+The app can be deployed on:
+
+Streamlit Cloud (Recommended - Free)
+
+Heroku
+
+Hugging Face Spaces
+
+Railway
+
+Streamlit Cloud Deployment
+Fork this repository
+
+Go to share.streamlit.io
+
+Connect your GitHub account
+
+Select this repository and deploy
+
+🤝 Contributing
+Fork the project
+
+Create your feature branch (git checkout -b feature/AmazingFeature)
+
+Commit your changes (git commit -m 'Add some AmazingFeature')
+
+Push to the branch (git push origin feature/AmazingFeature)
+
+Open a Pull Request
+
+📄 License
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+🙏 Acknowledgments
+Streamlit for the amazing web framework
+
+MLxtend for association rules implementation
+
+Plotly for interactive visualizations
+
+text
+
+### **Update `requirements.txt`**
+```txt
+streamlit==1.28.0
+pandas==2.0.3
+plotly==5.15.0
+scikit-learn==1.3.0
+mlxtend==0.22.0
+numpy==1.24.3
