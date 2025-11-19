@@ -1,0 +1,55 @@
+# .gitignore
+# Streamlit
+.streamlit/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints
+
+# ML models (for future integration)
+models/
+*.pkl
+*.joblib
+
+# Large data files
+data/raw/
+*.csv
+*.xlsx
