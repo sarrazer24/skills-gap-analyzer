@@ -1,6 +1,18 @@
-# .gitignore
-# Streamlit
-.streamlit/
+# Large data files (keep on Kaggle/Local)
+data/raw/
+*.csv
+!data/sample_jobs.csv
+!data/sample_skills.csv
+
+# ML model outputs (too large)
+*.pkl
+!app/models/association_model.pkl
+!app/models/clustering_model.pkl
+
+# Notebook outputs
+notebooks/*.csv
+notebooks/*.pkl
+notebooks/*.png
 
 # Python
 __pycache__/
@@ -8,21 +20,16 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+venv/
+env/
+.venv/
 *.egg-info/
-.installed.cfg
-*.egg
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
 
 # IDE
 .vscode/
@@ -34,22 +41,12 @@ wheels/
 .DS_Store
 Thumbs.db
 
+# Streamlit
+.streamlit/secrets.toml
+
 # Environment
 .env
-.venv
-env/
-venv/
-ENV/
 
-# Jupyter
-.ipynb_checkpoints
-
-# ML models (for future integration)
-models/
-*.pkl
-*.joblib
-
-# Large data files
-data/raw/
-*.csv
-*.xlsx
+# Temporary files
+*.tmp
+*.temp

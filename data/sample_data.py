@@ -1,8 +1,14 @@
 # data/sample_data.py
 import streamlit as st
+from src.data.loader import DataLoader
 
-# Sample jobs data
-SAMPLE_JOBS = {
+# Load jobs from CSV
+loader = DataLoader()
+try:
+    SAMPLE_JOBS = loader.load_sample_jobs_from_csv('data/processed/all_jobs_mapped.csv', n_samples=10)
+except Exception as e:
+    # Fallback to hardcoded if CSV loading fails
+    SAMPLE_JOBS = {
     "Senior Data Scientist": {
         "description": "We are looking for a Senior Data Scientist with 5+ years of experience in machine learning and statistical analysis. Required skills include Python, SQL, ML frameworks, and cloud platforms.",
         "required_skills": ["Python", "Machine Learning", "SQL", "Statistics", "AWS", "TensorFlow", "Data Visualization"],

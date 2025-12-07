@@ -1,0 +1,16 @@
+[theme]
+# Purple theme - Light mode (default)
+primaryColor = "#9333EA"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F4F6"
+textColor = "#1F2937"
+font = "sans serif"
+
+[server]
+maxUploadSize = 50
+enableCORS = true
+enableXsrfProtection = true
+
+[browser]
+serverAddress = "localhost"
+gatherUsageStats = false
