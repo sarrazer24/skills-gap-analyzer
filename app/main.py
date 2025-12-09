@@ -1171,6 +1171,55 @@ if st.session_state.user_skills and st.session_state.selected_job:
             from src.models.skill_matcher import SkillMatcher
             from src.data.loader import DataLoader
             import pandas as pd
+            import ast
+            import re
+            from difflib import get_close_matches
+
+            try:
+                from rapidfuzz import process as rf_process, fuzz as rf_fuzz
+                _have_rapidfuzz = True
+            except Exception:
+                _have_rapidfuzz = False
+
+            # Small alias map - extend over time via UI inspector
+            ALIAS_MAP = {
+                'k8s': 'kubernetes',
+                'aws': 'amazon web services',
+                'gcp': 'google cloud platform',
+                'ci/cd': 'ci cd',
+                'ci-cd': 'ci cd',
+                'ci_cd': 'ci cd',
+                'devops': 'devops',
+                'monitoring and logging tools': 'monitoring and logging tools',
+            }
+
+            RULE_CONF_THRESHOLD = 0.30  # ignore rules with confidence below this when counting unlocks
+
+            def normalize_skill(s: str) -> str:
+                if not s or not isinstance(s, str):
+                    return ""
+                s2 = s.strip().lower()
+                s2 = re.sub(r"[\(\)\[\]\"']", "", s2)
+                s2 = re.sub(r"[_\-\/]", " ", s2)
+                s2 = re.sub(r"\s+", " ", s2).strip()
+                return ALIAS_MAP.get(s2, s2)
+
+            def fuzzy_in_set(target: str, candidates_set: set, score_threshold: int = 85) -> bool:
+                t = target.lower().strip()
+                if t in candidates_set:
+                    return True
+                t_norm = normalize_skill(t)
+                if t_norm in candidates_set:
+                    return True
+                if _have_rapidfuzz and candidates_set:
+                    best = rf_process.extractOne(t_norm, list(candidates_set), scorer=rf_fuzz.token_sort_ratio)
+                    if best and best[1] >= score_threshold:
+                        return True
+                else:
+                    tries = get_close_matches(t_norm, list(candidates_set), n=1, cutoff=score_threshold / 100.0)
+                    if tries:
+                        return True
+                return False
             
             try:
                 # Build skill-to-category mapping
@@ -1180,12 +1229,24 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 
                 # Load association rules for better prioritization
                 rules_df = None
+                rules_combined_df = None
+                rules_cat_df = None
                 try:
                     rules_path = os.path.join('data', 'processed', 'association_rules_skills.csv')
                     if os.path.exists(rules_path):
                         rules_df = pd.read_csv(rules_path)
                         st.session_state.rules_loaded = True
-                except Exception as e:
+                    # combined rules (A3)
+                    combined_path = os.path.join('data', 'processed', 'association_rules_combined.csv')
+                    if os.path.exists(combined_path):
+                        rules_combined_df = pd.read_csv(combined_path)
+                        st.session_state.rules_combined_loaded = True
+                    # category-level rules (A2)
+                    cat_path = os.path.join('data', 'processed', 'association_rules_categories.csv')
+                    if os.path.exists(cat_path):
+                        rules_cat_df = pd.read_csv(cat_path)
+                        st.session_state.rules_cat_loaded = True
+                except Exception:
                     st.session_state.rules_loaded = False
                 
                 # Get prioritized missing skills (with association rules)
@@ -1210,14 +1271,74 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 with col4:
                     st.metric("Est. Months", f"{learning_estimate['total_months']:.1f}m")
                 
-                # Display missing skills organized by priority
-                missing_sorted = sorted(missing)
-                
-                # Split into priority tiers
-                third = len(missing_sorted) // 3
-                high_priority = missing_sorted[:third] if third > 0 else missing_sorted
-                med_priority = missing_sorted[third:third*2] if third > 0 else []
-                low_priority = missing_sorted[third*2:] if third > 0 else []
+                # Use prioritized missing skills returned by SkillMatcher
+                missing_sorted = gap_analysis.get('missing', sorted(missing))
+
+                # If rules_df was loaded, compute unlocks/confidence for display
+                skill_rule_meta = {}
+                if 'rules_df' in locals() and rules_df is not None and not rules_df.empty:
+                    try:
+                        # normalize job skills for matching
+                        job_skills_norm = {s.lower().strip() for s in job_set}
+                        for skill in missing_sorted:
+                            try:
+                                unlocks_job = 0
+                                total_consequents = 0
+                                confs = []
+                                consequents_accum = []
+
+                                # find rows where skill appears in antecedents (safe comparison)
+                                # antecedents are stored as stringified frozenset; parse with ast.literal_eval
+                                mask = rules_df['antecedents'].astype(str).apply(lambda x: skill.lower().strip() in x.lower())
+                                subset = rules_df[mask]
+
+                                for _, row in subset.iterrows():
+                                    try:
+                                        # skip weak rules by confidence
+                                        conf_val = row.get('confidence', None)
+                                        if pd.notna(conf_val):
+                                            try:
+                                                if float(conf_val) < RULE_CONF_THRESHOLD:
+                                                    continue
+                                            except Exception:
+                                                pass
+
+                                        ants = ast.literal_eval(row.get('antecedents', 'set()')) if isinstance(row.get('antecedents'), str) else set()
+                                        cons = ast.literal_eval(row.get('consequents', 'set()')) if isinstance(row.get('consequents'), str) else set()
+                                        # normalize consequents
+                                        cons_norm = {normalize_skill(c) for c in cons if isinstance(c, str)}
+                                        consequents_accum.extend(list(cons_norm))
+                                        total_consequents += len(cons_norm)
+                                        # count how many consequents match the job's required skills using fuzzy matching
+                                        for c_norm in cons_norm:
+                                            if fuzzy_in_set(c_norm, job_skills_norm, score_threshold=82):
+                                                unlocks_job += 1
+                                        # collect confidence
+                                        if pd.notna(conf_val):
+                                            try:
+                                                confs.append(float(conf_val))
+                                            except Exception:
+                                                pass
+                                    except Exception:
+                                        continue
+
+                                avg_conf = float(sum(confs) / len(confs)) if confs else None
+                                skill_rule_meta[skill] = {
+                                    'unlocks_job': int(unlocks_job),
+                                    'total_consequents': int(len(set(consequents_accum))) if consequents_accum else 0,
+                                    'avg_confidence': avg_conf,
+                                    'consequents_list': sorted(list(set(consequents_accum))) if consequents_accum else []
+                                }
+                            except Exception:
+                                skill_rule_meta[skill] = {'unlocks_job': 0, 'total_consequents': 0, 'avg_confidence': None, 'consequents_list': []}
+                    except Exception:
+                        skill_rule_meta = {}
+
+                # Split into priority tiers (preserve ordering from matcher)
+                third = max(1, len(missing_sorted) // 3)
+                high_priority = missing_sorted[:third] if missing_sorted else []
+                med_priority = missing_sorted[third:third*2] if len(missing_sorted) > third else []
+                low_priority = missing_sorted[third*2:] if len(missing_sorted) > third*2 else []
                 
                 if high_priority:
                     st.markdown("#### 🔴 Critical - Must Learn First")
@@ -1225,12 +1346,32 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     for idx, skill in enumerate(high_priority):
                         with cols[idx % 4]:
                             category = skill_to_cat_map.get(skill, 'general')
+                            # build rule meta label if available
+                            meta_html = ""
+                            meta = skill_rule_meta.get(skill, {})
+                            if meta:
+                                avg_conf = meta.get('avg_confidence')
+                                unlocks_job = meta.get('unlocks_job', 0)
+                                total_cons = meta.get('total_consequents', 0)
+                                meta_html = f"<div style=\"font-size:0.72rem;color: {critical_sub} !important; margin-top:8px;\">🔗 Unlocks (job): {unlocks_job} • Cons: {total_cons}"
+                                if avg_conf is not None:
+                                    meta_html += f" • Conf: {avg_conf:.2f}"
+                                meta_html += "</div>"
+
                             st.markdown(f"""
                             <div style="background: {critical_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {critical_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {critical_title} !important;">{skill.title()}</div>
                                 <div style="font-size: 0.8rem; color: {critical_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
+                                {meta_html}
                             </div>
                             """, unsafe_allow_html=True)
+                            # Add inspect expander for raw consequents
+                            details = skill_rule_meta.get(skill, {})
+                            if details and details.get('consequents_list'):
+                                with st.expander(f"Inspect '{skill.title()}' consequents", expanded=False):
+                                    st.write("**Parsed consequents (sample):**")
+                                    for c in details.get('consequents_list', [])[:10]:
+                                        st.write(f"- {c.title()}")
                 
                 if med_priority:
                     st.markdown("#### 🟡 Important - Should Learn After Critical")
@@ -1238,12 +1379,30 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     for idx, skill in enumerate(med_priority):
                         with cols[idx % 4]:
                             category = skill_to_cat_map.get(skill, 'general')
+                            meta_html = ""
+                            meta = skill_rule_meta.get(skill, {})
+                            if meta:
+                                avg_conf = meta.get('avg_confidence')
+                                unlocks_job = meta.get('unlocks_job', 0)
+                                total_cons = meta.get('total_consequents', 0)
+                                meta_html = f"<div style=\"font-size:0.72rem;color: {med_sub} !important; margin-top:8px;\">🔗 Unlocks (job): {unlocks_job} • Cons: {total_cons}"
+                                if avg_conf is not None:
+                                    meta_html += f" • Conf: {avg_conf:.2f}"
+                                meta_html += "</div>"
+
                             st.markdown(f"""
                             <div style="background: {med_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {med_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {med_title} !important;">{skill.title()}</div>
                                 <div style="font-size: 0.8rem; color: {med_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
+                                {meta_html}
                             </div>
                             """, unsafe_allow_html=True)
+                            details = skill_rule_meta.get(skill, {})
+                            if details and details.get('consequents_list'):
+                                with st.expander(f"Inspect '{skill.title()}' consequents", expanded=False):
+                                    st.write("**Parsed consequents (sample):**")
+                                    for c in details.get('consequents_list', [])[:10]:
+                                        st.write(f"- {c.title()}")
                 
                 if low_priority:
                     st.markdown("#### 🟢 Nice to Have - Learn if Time Permits")
@@ -1251,12 +1410,30 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     for idx, skill in enumerate(low_priority):
                         with cols[idx % 4]:
                             category = skill_to_cat_map.get(skill, 'general')
+                            meta_html = ""
+                            meta = skill_rule_meta.get(skill, {})
+                            if meta:
+                                avg_conf = meta.get('avg_confidence')
+                                unlocks_job = meta.get('unlocks_job', 0)
+                                total_cons = meta.get('total_consequents', 0)
+                                meta_html = f"<div style=\"font-size:0.72rem;color: {low_sub} !important; margin-top:8px;\">🔗 Unlocks (job): {unlocks_job} • Cons: {total_cons}"
+                                if avg_conf is not None:
+                                    meta_html += f" • Conf: {avg_conf:.2f}"
+                                meta_html += "</div>"
+
                             st.markdown(f"""
                             <div style="background: {low_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {low_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {low_title} !important;">{skill.title()}</div>
                                 <div style="font-size: 0.8rem; color: {low_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
+                                {meta_html}
                             </div>
                             """, unsafe_allow_html=True)
+                            details = skill_rule_meta.get(skill, {})
+                            if details and details.get('consequents_list'):
+                                with st.expander(f"Inspect '{skill.title()}' consequents", expanded=False):
+                                    st.write("**Parsed consequents (sample):**")
+                                    for c in details.get('consequents_list', [])[:10]:
+                                        st.write(f"- {c.title()}")
                 
                 # Show suggested learning path
                 with st.expander("📚 View Suggested Learning Path", expanded=False):
@@ -1266,6 +1443,32 @@ if st.session_state.user_skills and st.session_state.selected_job:
                         phase_str = ", ".join(s.title() for s in phase)
                         st.write(f"**Phase {phase_idx}:** {phase_str}")
                 
+                # Broader recommendations using combined association rules
+                try:
+                    if rules_combined_df is not None and not rules_combined_df.empty:
+                        rec_scores = {}
+                        user_and_missing = set(user_set) | set(missing_sorted)
+                        for _, row in rules_combined_df.iterrows():
+                            try:
+                                ants = set(eval(str(row.get('antecedents', 'set()'))))
+                                cons = set(eval(str(row.get('consequents', 'set()'))))
+                                if ants & user_and_missing:
+                                    score = float(row.get('confidence', 0.0)) if 'confidence' in row else 0.0
+                                    for c in cons:
+                                        if c in user_and_missing or c in job_set:
+                                            continue
+                                        rec_scores[c] = rec_scores.get(c, 0.0) + score
+                            except Exception:
+                                pass
+
+                        # show top 6 broader recommendations
+                        if rec_scores:
+                            sorted_recs = sorted(rec_scores.items(), key=lambda x: x[1], reverse=True)
+                            st.markdown("#### 💡 Broader Skill Recommendations (from combined rules)")
+                            for r, sc in sorted_recs[:6]:
+                                st.write(f"- {r.title()} (score: {sc:.2f})")
+                except Exception:
+                    pass
             except Exception as e:
                 # Fallback: simple list display
                 st.markdown(f"**Missing Skills ({len(missing)}):**")
@@ -1294,6 +1497,94 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     """, unsafe_allow_html=True)
         else:
             st.info("No additional skills beyond what's required.")
+    
+    # ====================
+    # SECTION 2B: ASSOCIATION RULES RECOMMENDATIONS (NEW)
+    # ====================
+    # Display association rule-based recommendations prominently
+    if missing and user_skills_normalized:
+        st.markdown(f"""
+        <hr style="margin: 2rem 0; border: none; border-top: 2px solid {colors['border']};">
+        <h2 style="
+            color: {colors['text_primary']};
+            font-size: 1.5rem;
+            margin: 1.5rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border-bottom: 2px solid {colors['accent_tertiary']};
+            padding-bottom: 12px;
+        "><span style="font-size: 1.75rem;">🤖</span> AI-Powered Skill Recommendations (Association Rules)</h2>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        **How this works:** Our unsupervised association rules mining learned patterns from 200,000+ job profiles.
+        Based on your current skills, these skills are frequently learned together by professionals advancing their careers.
+        """)
+        
+        # Load and display association rules recommendations
+        try:
+            from src.models.association_miner import get_skill_recommendations_with_explanations
+            
+            rec_result = get_skill_recommendations_with_explanations(
+                user_skills=user_skills_normalized,
+                target_job_skills=job_skills,
+                data_dir='data/processed',
+                top_n=8,
+                min_score=0.0
+            )
+            
+            if rec_result.get('success'):
+                recs = rec_result.get('recommendations', [])
+                num_rules = rec_result.get('num_rules_loaded', 0)
+                
+                st.caption(f"📊 Generated from {num_rules:,} association rules ({len(rec_result.get('recommendations', []))} recommendations found)")
+                
+                if recs:
+                    # Display recommendations in a nice grid
+                    rec_cols = st.columns(2)
+                    for idx, rec in enumerate(recs):
+                        with rec_cols[idx % 2]:
+                            skill_name = rec.get('skill', '').title()
+                            score = rec.get('score', 0)
+                            explanation = rec.get('explanation', 'No explanation available')
+                            
+                            # Score visualization (0-1 scale)
+                            bar_width = int(score * 20)  # 20 chars max
+                            bar = "█" * bar_width + "░" * (20 - bar_width)
+                            
+                            st.markdown(f"""
+                            <div style="
+                                background: linear-gradient(135deg, {colors['bg_tertiary']} 0%, {colors['bg_secondary']} 100%);
+                                border-radius: 12px;
+                                padding: 14px;
+                                border-left: 4px solid {colors['accent_tertiary']};
+                                margin-bottom: 12px;
+                            ">
+                                <div style="font-weight: 700; color: {colors['accent_tertiary']}; font-size: 1.1rem; margin-bottom: 6px;">
+                                    📚 {skill_name}
+                                </div>
+                                <div style="font-size: 0.75rem; color: {colors['text_secondary']}; margin-bottom: 8px;">
+                                    {explanation}
+                                </div>
+                                <div style="font-size: 0.7rem; color: {colors['text_muted']}; margin-top: 6px;">
+                                    Recommendation Score: <span style="font-weight: 600; color: {colors['accent_tertiary']};">{score:.1%}</span>
+                                </div>
+                                <div style="font-size: 0.65rem; color: {colors['text_muted']}; margin-top: 2px;">
+                                    {bar}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.info("💡 No additional recommendations found. You might already have broad skill coverage for this role!")
+            else:
+                error_msg = rec_result.get('error_message', 'Unknown error')
+                st.warning(f"⚠️ Could not load association rules: {error_msg}")
+        
+        except ImportError:
+            st.warning("⚠️ Association rules module not available. Please run 02_association_rules.ipynb first.")
+        except Exception as e:
+            st.warning(f"⚠️ Error loading association rules: {str(e)}")
     
     # ====================
     # SECTION 3: RECOMMENDATIONS
@@ -1744,138 +2035,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
                                     <div style="font-weight: 600; color: {extra_title} !important;">+ {skill.title()}</div>
                                 </div>
                                 """, unsafe_allow_html=True)
-        st.markdown("""
-        <div style="margin-top: 2rem;">
-            <h3 style="
-                color: {colors['text_primary']};
-                font-size: 1.25rem;
-                margin: 1rem 0;
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-            "><span style="font-size: 1.5rem;">📚</span> Recommended Skills to Learn</h3>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        try:
-            from src.models.association_miner import AssociationEnsemble
 
-            candidates = [
-                os.path.join('app', 'models', 'association_rules_a2.pkl'),
-                os.path.join('app', 'models', 'association_rules_a1.pkl'),
-                os.path.join('app', 'models', 'association_rules_a3.pkl'),
-                os.path.join('app', 'models', 'association_rules.pkl'),
-                os.path.join('data', 'processed', 'association_rules_a2.pkl'),
-                os.path.join('data', 'processed', 'association_rules_a1.pkl'),
-                os.path.join('data', 'processed', 'association_rules_a3.pkl'),
-                os.path.join('data', 'processed', 'association_rules_skills.csv'),
-                os.path.join('data', 'processed', 'association_rules_categories.csv'),
-                os.path.join('data', 'processed', 'association_rules_combined.csv'),
-            ]
-
-            found_paths = []
-            for c in candidates:
-                p = locate_model_file([c])
-                if p and os.path.exists(p):
-                    found_paths.append(p)
-
-            if found_paths:
-                ensemble = AssociationEnsemble()
-                ensemble.load_paths(found_paths)
-
-                # Map user skills to categories when possible
-                try:
-                    dl = DataLoader()
-                    skills_tax = dl.load_skills_taxonomy()
-                    skill_to_cat = {}
-                    if isinstance(skills_tax, pd.DataFrame) and 'skill_group_name' in skills_tax.columns and 'skill_group_category' in skills_tax.columns:
-                        for _, r in skills_tax.iterrows():
-                            name = str(r['skill_group_name']).lower().strip()
-                            cat = str(r['skill_group_category']).lower().strip()
-                            if name:
-                                skill_to_cat[name] = cat
-                    user_items = []
-                    for s in st.session_state.user_skills:
-                        mapped = skill_to_cat.get(s.lower().strip())
-                        if mapped:
-                            user_items.append(mapped)
-                    if not user_items:
-                        user_items = st.session_state.user_skills
-                except Exception:
-                    user_items = st.session_state.user_skills
-
-                recommendations = ensemble.get_recommendations(user_items, top_n=5)
-
-                if recommendations is not None and not recommendations.empty:
-                    st.markdown("### 📚 Based on Association Rules (ensemble), you should also consider learning:")
-                    for idx, (_, row) in enumerate(recommendations.iterrows(), 1):
-                        skill_name = row['skill'].title()
-                        score_pct = float(row.get('score', 0.0)) * 100
-                        sources = row.get('sources', '')
-                        context_line = f"💡 Combined score {score_pct:.0f}% — sources: {sources}"
-                        st.markdown(f"**{idx}. {skill_name}**\n\n{context_line}\n*(From combined association models)*")
-                else:
-                    # fallback to A1 as before
-                    handled = False
-                    try:
-                        # Try A1 explicitly
-                        model_path_a1 = locate_model_file([
-                            os.path.join('app', 'models', 'association_rules_a1.pkl'),
-                            os.path.join('data', 'processed', 'association_rules_a1.pkl'),
-                        ])
-                        if model_path_a1:
-                            from src.models.association_miner import AssociationMiner
-                            miner_a1 = AssociationMiner.load(model_path_a1)
-                            recs_a1 = miner_a1.get_recommendations([s.lower().strip() for s in st.session_state.user_skills], top_n=6)
-                            if recs_a1 is not None and not recs_a1.empty:
-                                st.markdown("### 🔁 Skill-level suggestions (A1 fallback)")
-                                for idx, (_, row) in enumerate(recs_a1.iterrows(), 1):
-                                    skill_name = row['skill'].title()
-                                    confidence_pct = row.get('confidence', 0) * 100
-                                    st.markdown(f"**{idx}. {skill_name}** — {confidence_pct:.0f}% confidence (from skill-level rules)")
-                                handled = True
-                    except Exception:
-                        handled = False
-
-                    if not handled and st.session_state.user_skills:
-                        # Existing job-description overlap fallback
-                        try:
-                            user_set_lower = set(s.lower().strip() for s in st.session_state.user_skills)
-                            overlap_counts = {}
-                            for _, jrow in jobs_df.iterrows():
-                                jskills = jrow.get('skill_list', [])
-                                if isinstance(jskills, str):
-                                    import ast as _ast
-                                    try:
-                                        jskills = _ast.literal_eval(jskills)
-                                    except:
-                                        jskills = [s.strip() for s in jskills.split(',') if s.strip()]
-                                if not isinstance(jskills, list):
-                                    continue
-                                jset = set(s.lower().strip() for s in jskills if s and str(s).strip())
-                                if user_set_lower & jset:
-                                    for sk in jset:
-                                        if sk in user_set_lower:
-                                            continue
-                                        overlap_counts[sk] = overlap_counts.get(sk, 0) + 1
-
-                            if overlap_counts:
-                                top_skills = sorted(overlap_counts.items(), key=lambda x: x[1], reverse=True)[:6]
-                                skills_list = [s[0].title() for s in top_skills]
-                                st.info("💡 No direct association-rule suggestions — falling back to common complementary skills from matching job descriptions:")
-                                cols = st.columns(min(3, len(skills_list)))
-                                for i, sk in enumerate(skills_list):
-                                    with cols[i % 3]:
-                                        st.success(sk)
-                            else:
-                                st.info("💡 No specific skill recommendations found for your skill combination yet. Try learning complementary skills from the job descriptions below.")
-                        except Exception:
-                            st.info("💡 No specific skill recommendations found for your skill combination yet. Try learning complementary skills from the job descriptions below.")
-            else:
-                st.info("💡 Association rules models not found. Run `python scripts/download_models.py` or place model artifacts in `app/models/` or `data/processed/`")
-        except Exception as e:
-            st.warning(f"Skill recommendations temporarily unavailable: {str(e)}")
-        
         # Similar jobs from Clustering (all from same cluster)
         st.markdown("""
         <div style="margin-top: 2rem;">

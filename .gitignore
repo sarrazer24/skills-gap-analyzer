@@ -50,3 +50,13 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+*~
+.DS_Store/
+
+# pytest and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Cache directories
+.cache/

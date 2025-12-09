@@ -9,7 +9,9 @@ from .association_miner import (
     AssociationEnsemble,
     train_all_models,
     load_models_from_csv,
-    save_models_to_csv
+    save_models_to_csv,
+    get_association_rules_from_csv,
+    get_skill_recommendations_with_explanations
 )
 from .skill_matcher import SkillMatcher
 from .learning_path_generator import LearningPathGenerator
@@ -22,6 +24,8 @@ __all__ = [
     'train_all_models',
     'load_models_from_csv',
     'save_models_to_csv',
+    'get_association_rules_from_csv',
+    'get_skill_recommendations_with_explanations',
     # Skill Gap Analysis
     'SkillMatcher',
     # Learning Path Generation
@@ -29,5 +33,4 @@ __all__ = [
     # Model Validation
     'ModelValidator',
 ]
-
 

@@ -514,13 +514,26 @@ class AssociationEnsemble:
                         return set(str(x).lower().strip() for x in v if x)
                     if isinstance(v, str):
                         try:
+                            # First try ast.literal_eval
                             val = ast.literal_eval(v)
                             if isinstance(val, (list, tuple, set, frozenset)):
                                 return set(str(x).lower().strip() for x in val if x)
                         except Exception:
-                            # fallback split by comma
-                            parts = [p.strip().lower() for p in v.split(',') if p.strip()]
-                            return set(parts)
+                            pass
+                        # Try converting frozenset() call to a set literal
+                        # e.g., frozenset({'item1', 'item2'}) -> extract the dict/set part
+                        if v.startswith('frozenset('):
+                            try:
+                                # Extract content between frozenset( and )
+                                inner = v[10:-1]  # Remove 'frozenset(' and ')'
+                                val = ast.literal_eval(inner)
+                                if isinstance(val, (list, tuple, set, frozenset, dict)):
+                                    return set(str(x).lower().strip() for x in val if x)
+                            except Exception:
+                                pass
+                        # Fallback: split by comma
+                        parts = [p.strip().lower() for p in v.split(',') if p.strip()]
+                        return set(parts)
                     return set()
                 df[col] = df[col].apply(_parse_cell)
 
@@ -562,10 +575,44 @@ class AssociationEnsemble:
                 continue
 
     def get_recommendations(self, user_skills: List[str], top_n: int = 10) -> pd.DataFrame:
-        """Query each loaded model and merge recommendations.
-
-        Returns a DataFrame with columns: skill, score, sources, top_source, details
         """
+        Query each loaded association rule model and merge recommendations.
+        
+        This is the core method for extracting skill recommendations from association rules.
+        It operates on multiple models (A1, A2, A3) and combines their predictions using
+        a noisy-or aggregation approach to produce a unified ranking.
+        
+        **Important:** This method implements unsupervised association rule mining where:
+        - Each model independently identifies rules where antecedents match user skills
+        - Confidence scores measure how likely a consequent skill appears with user's skills
+        - Lift indicates whether the association is stronger than random chance
+        
+        Args:
+            user_skills: List of skills the user currently has (case-insensitive)
+            top_n: Maximum number of top recommendations to return (default: 10)
+        
+        Returns:
+            DataFrame with columns:
+            - skill: Recommended skill name
+            - score: Combined recommendation score (0-1, normalized)
+            - sources: Comma-separated list of models that recommended this skill
+            - top_source: Primary model recommending this skill (highest confidence)
+            - top_norm_confidence: Normalized confidence from top source
+            - details: List of dicts with per-model details (confidence, lift, antecedents)
+        
+        Edge Cases Handled:
+        - No models loaded: returns empty DataFrame
+        - User has no skills: returns empty DataFrame
+        - No rules match user skills: returns empty DataFrame
+        - Rules have malformed antecedents/consequents: gracefully skipped
+        
+        Examples:
+            >>> ensemble = AssociationEnsemble()
+            >>> ensemble.load_paths(['data/processed/association_rules_categories.csv'])
+            >>> recs = ensemble.get_recommendations(['python', 'sql'], top_n=5)
+            >>> print(recs[['skill', 'score', 'sources']])
+        """
+
         if not self.models:
             return pd.DataFrame()
         all_recs = []
@@ -633,4 +680,205 @@ class AssociationEnsemble:
         out_df = out_df.sort_values('score', ascending=False).reset_index(drop=True)
         return out_df.head(top_n)
 
+
+# ============================================================================
+# PUBLIC HELPER FUNCTIONS FOR APP INTEGRATION
+# ============================================================================
+
+def get_association_rules_from_csv(
+    data_dir: str = 'data/processed',
+    use_models: List[str] = None
+) -> AssociationEnsemble:
+    """
+    Load association rules from CSV files and return an ensemble.
+    
+    This is the main entry point for the Streamlit app to fetch association rules.
+    It loads one or more CSV files (A1: skills, A2: categories, A3: combined)
+    and wraps them in an AssociationEnsemble for unified recommendation generation.
+    
+    Args:
+        data_dir: Directory containing association_rules_*.csv files
+        use_models: List of models to load. Options: ['skills', 'categories', 'combined']
+                   If None, tries to load all available models (categories first for priority).
+    
+    Returns:
+        AssociationEnsemble instance with loaded rules, ready to call get_recommendations()
+    
+    Example:
+        >>> ensemble = get_association_rules_from_csv('data/processed')
+        >>> user_skills = ['python', 'sql', 'machine learning']
+        >>> recommendations = ensemble.get_recommendations(user_skills, top_n=10)
+        >>> print(recommendations[['skill', 'score', 'sources']])
+    """
+    data_path = Path(data_dir)
+    ensemble = AssociationEnsemble()
+    
+    # Default: load categories first (best for interpretability), then skills
+    if use_models is None:
+        use_models = ['categories', 'skills', 'combined']
+    
+    model_files = {
+        'skills': 'association_rules_skills.csv',
+        'categories': 'association_rules_categories.csv',
+        'combined': 'association_rules_combined.csv'
+    }
+    
+    paths = []
+    for model_name in use_models:
+        if model_name in model_files:
+            csv_file = data_path / model_files[model_name]
+            if csv_file.exists():
+                paths.append(str(csv_file))
+    
+    if paths:
+        ensemble.load_paths(paths)
+    
+    return ensemble
+
+
+def get_skill_recommendations_with_explanations(
+    user_skills: List[str],
+    target_job_skills: List[str] = None,
+    data_dir: str = 'data/processed',
+    top_n: int = 10,
+    min_score: float = 0.0
+) -> Dict[str, Any]:
+    """
+    Get skill recommendations from association rules WITH EXPLANATIONS.
+    
+    This is the highest-level function for the Streamlit app.
+    It combines gap analysis with association rule recommendations,
+    providing explanations for why each skill is recommended.
+    
+    Args:
+        user_skills: Skills the user currently has
+        target_job_skills: Skills required for the target job (optional, for context)
+        data_dir: Directory containing association_rules_*.csv files
+        top_n: Maximum number of recommendations to return
+        min_score: Filter recommendations with score below this threshold
+    
+    Returns:
+        Dict with keys:
+        - 'success': bool indicating if recommendations were generated
+        - 'recommendations': list of dicts with keys:
+            * 'skill': skill name
+            * 'score': recommendation score (0-1)
+            * 'explanation': human-readable explanation
+            * 'sources': which models recommended this skill
+            * 'details': raw details for debugging
+        - 'error_message': string if success=False
+        - 'num_rules_loaded': count of rules loaded
+    
+    Example:
+        >>> result = get_skill_recommendations_with_explanations(
+        ...     user_skills=['python', 'sql'],
+        ...     target_job_skills=['python', 'sql', 'spark', 'ml'],
+        ...     data_dir='data/processed'
+        ... )
+        >>> if result['success']:
+        ...     for rec in result['recommendations']:
+        ...         print(f"📚 {rec['skill']}: {rec['explanation']}")
+    """
+    result = {
+        'success': False,
+        'recommendations': [],
+        'error_message': None,
+        'num_rules_loaded': 0
+    }
+    
+    try:
+        # Load ensemble
+        ensemble = get_association_rules_from_csv(data_dir)
+        
+        # Count loaded rules
+        total_rules = sum(
+            len(m['miner'].rules) if m['miner'].rules is not None else 0
+            for m in ensemble.models
+        )
+        result['num_rules_loaded'] = total_rules
+        
+        if total_rules == 0:
+            result['error_message'] = (
+                f"No association rules found in {data_dir}. "
+                "Please run 02_association_rules.ipynb first to train the models."
+            )
+            return result
+        
+        # Normalize user skills
+        user_skills_clean = [s.lower().strip() for s in (user_skills or []) if s]
+        
+        if not user_skills_clean:
+            result['error_message'] = "User has no skills provided. Cannot generate recommendations."
+            return result
+        
+        # Get recommendations from ensemble
+        recs_df = ensemble.get_recommendations(user_skills_clean, top_n=top_n * 2)
+        
+        if recs_df is None or recs_df.empty:
+            result['success'] = True  # Not an error, just no rules matched
+            result['recommendations'] = []
+            result['error_message'] = (
+                "No recommendations found for these skills. "
+                "Try building a broader skill profile."
+            )
+            return result
+        
+        # Filter by score and convert to output format
+        for idx, row in recs_df.iterrows():
+            score = float(row.get('score', 0.0))
+            
+            if score < min_score:
+                continue
+            
+            skill = str(row.get('skill', '')).lower().strip()
+            if not skill:
+                continue
+            
+            # Build explanation
+            sources = str(row.get('sources', '')).split(',')
+            sources = [s.strip() for s in sources if s.strip()]
+            
+            # Translate model names to user-friendly descriptions
+            source_descriptions = {
+                'association_rules_skills': 'Skill-level patterns',
+                'association_rules_categories': 'Category-level patterns',
+                'association_rules_combined': 'Combined patterns',
+                'skills': 'Skill-level patterns',
+                'categories': 'Category-level patterns',
+                'combined': 'Combined patterns'
+            }
+            
+            friendly_sources = [
+                source_descriptions.get(src, src) for src in sources
+            ]
+            
+            explanation = (
+                f"Based on {', '.join(friendly_sources)}: "
+                f"users with your skills often need {skill} (confidence: {score:.1%})"
+            )
+            
+            rec = {
+                'skill': skill,
+                'score': round(score, 4),
+                'explanation': explanation,
+                'sources': ','.join(sources),
+                'details': {
+                    'top_source': row.get('top_source'),
+                    'top_norm_confidence': float(row.get('top_norm_confidence', 0.0)),
+                    'raw_details': str(row.get('details', ''))
+                }
+            }
+            
+            result['recommendations'].append(rec)
+        
+        # Sort by score descending
+        result['recommendations'].sort(key=lambda x: x['score'], reverse=True)
+        result['recommendations'] = result['recommendations'][:top_n]
+        result['success'] = True
+        
+        return result
+    
+    except Exception as e:
+        result['error_message'] = f"Error loading recommendations: {str(e)}"
+        return result
 

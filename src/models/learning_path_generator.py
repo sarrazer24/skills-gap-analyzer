@@ -219,6 +219,87 @@ class LearningPathGenerator:
         
         return total_weeks, skill_times
     
+    def enrich_learning_path_with_associations(
+        self,
+        learning_path: Dict,
+        user_current_skills: List[str] = None
+    ) -> Dict:
+        """
+        Enrich a learning path with association rule explanations.
+        
+        For each skill in the learning path, add explanations of which rules
+        suggest learning this skill (e.g., "recommended because users with
+        Python and SQL often learn Spark").
+        
+        This makes the association rules used for recommendations explicit
+        and justifiable to the user.
+        
+        Args:
+            learning_path: Dict from generate_learning_path()
+            user_current_skills: User's current skills (for context)
+            
+        Returns:
+            Enhanced learning path with 'rule_explanations' for each phase
+        
+        Example:
+            >>> path = generator.generate_learning_path(['spark', 'scala'])
+            >>> enriched = generator.enrich_learning_path_with_associations(
+            ...     path, user_current_skills=['python', 'sql']
+            ... )
+            >>> for phase in enriched['phases']:
+            ...     for skill, explanation in phase.get('rule_explanations', {}).items():
+            ...         print(f"  {skill}: {explanation}")
+        """
+        if 'phases' not in learning_path:
+            return learning_path
+        
+        user_skills_set = set(
+            s.lower().strip() for s in (user_current_skills or []) if s
+        )
+        
+        # Enrich each phase
+        for phase in learning_path.get('phases', []):
+            phase['rule_explanations'] = {}
+            
+            for skill in phase.get('skills', []):
+                skill_lower = skill.lower().strip()
+                explanations = []
+                
+                if not self.rules_df.empty:
+                    # Find rules where this skill is consequent and user skills are antecedents
+                    for idx, row in self.rules_df.iterrows():
+                        try:
+                            antecedents = self._parse_frozenset(row.get('antecedents', ''))
+                            consequents = self._parse_frozenset(row.get('consequents', ''))
+                            confidence = float(row.get('confidence', 0))
+                            lift = float(row.get('lift', 1.0))
+                            
+                            # Check if skill is in consequents
+                            if not any(skill_lower in str(c).lower() for c in consequents):
+                                continue
+                            
+                            # Check if any antecedent is in user skills or previously learned
+                            matching_antecedents = [
+                                a for a in antecedents
+                                if a.lower().strip() in user_skills_set
+                            ]
+                            
+                            if matching_antecedents and confidence > 0.3:
+                                antec_str = ', '.join(matching_antecedents)
+                                explanation = (
+                                    f"Users with {antec_str} frequently need {skill} "
+                                    f"(confidence: {confidence:.0%}, lift: {lift:.2f})"
+                                )
+                                explanations.append(explanation)
+                        except:
+                            pass
+                
+                # Use top explanation if available
+                if explanations:
+                    phase['rule_explanations'][skill] = explanations[0]
+        
+        return learning_path
+    
     # ============= Helper Methods =============
     
     def _build_prerequisite_graph(self, target_skills: set) -> Dict[str, List[str]]:
