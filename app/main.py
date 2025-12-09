@@ -1170,6 +1170,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
             # Use SkillMatcher for optimized gap analysis
             from src.models.skill_matcher import SkillMatcher
             from src.data.loader import DataLoader
+            import pandas as pd
             
             try:
                 # Build skill-to-category mapping
@@ -1177,10 +1178,21 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 skill_to_cat_map = loader.get_skill_to_category_map()
                 matcher = SkillMatcher(skill_to_cat_map)
                 
-                # Get prioritized missing skills
+                # Load association rules for better prioritization
+                rules_df = None
+                try:
+                    rules_path = os.path.join('data', 'processed', 'association_rules_skills.csv')
+                    if os.path.exists(rules_path):
+                        rules_df = pd.read_csv(rules_path)
+                        st.session_state.rules_loaded = True
+                except Exception as e:
+                    st.session_state.rules_loaded = False
+                
+                # Get prioritized missing skills (with association rules)
                 gap_analysis = matcher.analyze_gap(
                     list(user_set),
-                    list(job_set)
+                    list(job_set),
+                    rules_df=rules_df  # Pass association rules for better prioritization
                 )
                 
                 st.markdown(f"**You need to learn {len(missing)} skills:**")

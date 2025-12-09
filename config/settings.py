@@ -42,6 +42,18 @@ UI_CONFIG: Dict[str, Any] = {
     "MAX_RECOMMENDATIONS": 10,
     "CHART_HEIGHT": 400,
     "SIDEBAR_WIDTH": 300,
+    # Color scheme - Tech-focused gradient
+    "PRIMARY_COLOR": "#6366F1",  # Indigo
+    "SECONDARY_COLOR": "#8B5CF6",  # Purple
+    "ACCENT_COLOR": "#EC4899",  # Pink
+    "SUCCESS_COLOR": "#10B981",  # Green
+    "WARNING_COLOR": "#F59E0B",  # Amber
+    "ERROR_COLOR": "#EF4444",  # Red
+    "TEXT_PRIMARY": "#1F2937",  # Dark gray
+    "TEXT_SECONDARY": "#6B7280",  # Medium gray
+    "BACKGROUND": "#FFFFFF",  # White
+    "BACKGROUND_LIGHT": "#F9FAFB",  # Very light gray
+    "BORDER_COLOR": "#E5E7EB",  # Light border
 }
 
 # File Paths
