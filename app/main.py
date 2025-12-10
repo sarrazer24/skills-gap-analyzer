@@ -420,9 +420,80 @@ st.markdown(f"""
     div[style*="rgb(224, 231, 255)"] *, div[style*="rgb(224,231,255)"] * {{
         color: #1e293b !important;
     }}
+
+    /* --- Custom app layout overrides --- */
+    /* Widen the main content area while keeping reasonable side padding */
+    .main > div {{
+        max-width: 1200px !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }}
+
+    @media (max-width: 900px) {{
+        .main > div {{
+            max-width: 100% !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }}
+    }}
+
+    /* Animated accent line used under hero subtitle */
+    .accent-line {{
+        margin: 1rem auto;
+        height: 4px;
+        width: 200px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, {colors['accent_tertiary']}, {colors['accent_primary']}, {colors['accent_secondary']});
+        background-size: 200% 100%;
+        animation: accentPulse 3s ease-in-out infinite;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+    }}
+
+    @keyframes accentPulse {{
+        0%   {{ background-position: 0% 50%;   opacity: 0.65; }}
+        50%  {{ background-position: 100% 50%; opacity: 1.0; }}
+        100% {{ background-position: 0% 50%;   opacity: 0.65; }}
+    }}
+
 </style>
 """, unsafe_allow_html=True)
 
+# Section title styling for consistent typography and subtle underline
+st.markdown(f"""
+<style>
+    .section-title {{
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin: 0.6rem 0 0.4rem 0;
+        color: {colors['text_primary']};
+        letter-spacing: -0.01em;
+    }}
+    .section-sub {{
+        font-size: 0.94rem;
+        color: {colors['text_secondary']};
+        margin-bottom: 0.6rem;
+    }}
+    .section-accent {{
+        height: 3px;
+        width: 120px;
+        margin-top: 8px;
+        background: linear-gradient(90deg, {colors['accent_tertiary']}, {colors['accent_primary']});
+        border-radius: 999px;
+        opacity: 0.95;
+    }}
+    .card-grid {{
+        display:flex; flex-wrap:wrap; gap:12px; align-items:stretch;
+    }}
+    .card-grid .card {{
+        flex: 1 1 calc(33% - 12px); min-width:160px; box-sizing:border-box;
+    }}
+    @media (max-width: 900px) {{
+        .card-grid .card {{ flex-basis: calc(50% - 12px); }}
+    }}
+</style>
+""", unsafe_allow_html=True)
 # Header with modern gradient and professional branding
 col1, col2, col3 = st.columns([1, 0.05, 0.15])
 
@@ -443,13 +514,7 @@ with col1:
             margin-top: 0.75rem;
             letter-spacing: 0.02em;
         ">AI-Powered Career Development Platform</p>
-        <div style="
-            margin: 1.5rem auto;
-            width: 120px;
-            height: 4px;
-            background: linear-gradient(90deg, {colors['accent_primary']}, {colors['accent_secondary']}, {colors['accent_tertiary']});
-            border-radius: 2px;
-        "></div>
+        <div class="accent-line"></div>
         <p style="
             color: {colors['text_secondary']};
             font-size: 0.95rem;
@@ -560,13 +625,13 @@ unique_job_titles = get_unique_job_titles(jobs_df)
 # ====================
 # SECTION 1: BUILD YOUR PROFILE
 # ====================
-st.header("1️⃣ Build Your Profile")
+st.markdown("<h2 class='section-title'>1️⃣ Build your profile</h2>", unsafe_allow_html=True)
 
 # Two-column layout: Skills on left, Job on right
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("📊 Your Technical Skills")
+    st.subheader("📊 Your Skills")
     
     # Method selector
     method = st.radio(
@@ -1007,11 +1072,12 @@ with col2:
         st.warning("Job data not loaded. Please check data files.")
 
 # ====================
-# ====================
 # SECTION 2: SKILL GAP ANALYSIS
 # ====================
 if st.session_state.user_skills and st.session_state.selected_job:
-    st.header("2️⃣ Skill Gap Analysis")
+    st.divider()
+    st.markdown("<h2 class='section-title'>2️⃣ Skill gap analysis</h2>", unsafe_allow_html=True)
+    st.markdown("<div class='section-sub'>Compare your skills to the role and prioritize the most important gaps.</div>", unsafe_allow_html=True)
     
     # Get job skills
     job = st.session_state.selected_job
@@ -1080,6 +1146,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
     
     # Progress bar
     st.progress(match_percent / 100, text=f"Career Readiness: {match_percent:.1f}%")
+    st.write("")
     
     # Set up color scheme
     if st.session_state.get('theme', 'dark') == 'dark':
@@ -1207,20 +1274,18 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     rules_df=rules_df  # Pass association rules for better prioritization
                 )
                 
-                st.markdown(f"**You need to learn {len(missing)} skills:**")
-                
                 # Show learning time estimate
                 learning_estimate = matcher.estimate_learning_time(gap_analysis['missing'])
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Total Skills", len(missing))
+                    st.markdown(f"<div style='text-align:center;'><div style='font-weight:700; font-size:1.5rem; color:#ef4444;'>{len(missing)}</div><div style='font-size:0.75rem; color:#666; margin-top:4px;'>Skills to Learn</div></div>", unsafe_allow_html=True)
                 with col2:
-                    st.metric("Est. Hours", f"{learning_estimate['total_hours']:.0f}h")
+                    st.markdown(f"<div style='text-align:center;'><div style='font-weight:700; font-size:1.5rem; color:#3b82f6;'>{learning_estimate['total_hours']:.0f}h</div><div style='font-size:0.75rem; color:#666; margin-top:4px;'>Est. Hours</div></div>", unsafe_allow_html=True)
                 with col3:
-                    st.metric("Est. Weeks", f"{learning_estimate['total_weeks']:.1f}w")
+                    st.markdown(f"<div style='text-align:center;'><div style='font-weight:700; font-size:1.5rem; color:#f59e0b;'>{learning_estimate['total_weeks']:.1f}w</div><div style='font-size:0.75rem; color:#666; margin-top:4px;'>Est. Weeks</div></div>", unsafe_allow_html=True)
                 with col4:
-                    st.metric("Est. Months", f"{learning_estimate['total_months']:.1f}m")
+                    st.markdown(f"<div style='text-align:center;'><div style='font-weight:700; font-size:1.5rem; color:#10b981;'>{learning_estimate['total_months']:.1f}m</div><div style='font-size:0.75rem; color:#666; margin-top:4px;'>Est. Months</div></div>", unsafe_allow_html=True)
                 
                 # Use prioritized missing skills returned by SkillMatcher
                 missing_sorted = gap_analysis.get('missing', sorted(missing))
@@ -1308,63 +1373,53 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 low_sub = '#166534' if st.session_state.get('theme', 'dark') != 'dark' else '#0a4e1a'
                 
                 if high_priority:
-                    st.markdown("#### 🔴 Critical - Must Learn First")
-                    cols = st.columns(4)
-                    for idx, skill in enumerate(high_priority):
-                        with cols[idx % 4]:
-                            st.markdown(f"""
-                            <div style="background: {critical_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {critical_border}; margin-bottom: 10px;">
+                    st.markdown("##### 🔴 Critical — Learn first")
+                    cards_html = '<div class="card-grid">'
+                    for skill in high_priority:
+                        cards_html += f"""
+                        <div class="card">
+                            <div style="background: {critical_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {critical_border}; height: 100%;">
                                 <div style="font-weight: 600; color: {critical_title} !important;">{skill.title()}</div>
                             </div>
-                            """, unsafe_allow_html=True)
-                            # Add inspect expander for raw consequents
-                            details = skill_rule_meta.get(skill, {})
-                            if details and details.get('consequents_list'):
-                                with st.expander(f"Inspect '{skill.title()}' consequents", expanded=False):
-                                    st.write("**Parsed consequents (sample):**")
-                                    for c in details.get('consequents_list', [])[:10]:
-                                        st.write(f"- {c.title()}")
+                        </div>
+                        """
+                    cards_html += '</div>'
+                    st.markdown(cards_html, unsafe_allow_html=True)
                 
                 if med_priority:
-                    st.markdown("#### 🟡 Important - Should Learn After Critical")
-                    cols = st.columns(4)
-                    for idx, skill in enumerate(med_priority):
-                        with cols[idx % 4]:
-                            st.markdown(f"""
-                            <div style="background: {med_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {med_border}; margin-bottom: 10px;">
+                    st.markdown("##### 🟡 Important — Learn after critical")
+                    cards_html = '<div class="card-grid">'
+                    for skill in med_priority:
+                        cards_html += f"""
+                        <div class="card">
+                            <div style="background: {med_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {med_border}; height: 100%;">
                                 <div style="font-weight: 600; color: {med_title} !important;">{skill.title()}</div>
                             </div>
-                            """, unsafe_allow_html=True)
-                            details = skill_rule_meta.get(skill, {})
-                            if details and details.get('consequents_list'):
-                                with st.expander(f"Inspect '{skill.title()}' consequents", expanded=False):
-                                    st.write("**Parsed consequents (sample):**")
-                                    for c in details.get('consequents_list', [])[:10]:
-                                        st.write(f"- {c.title()}")
+                        </div>
+                        """
+                    cards_html += '</div>'
+                    st.markdown(cards_html, unsafe_allow_html=True)
                 
                 if low_priority:
-                    st.markdown("#### 🟢 Nice to Have - Learn if Time Permits")
-                    cols = st.columns(4)
-                    for idx, skill in enumerate(low_priority):
-                        with cols[idx % 4]:
-                            st.markdown(f"""
-                            <div style="background: {low_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {low_border}; margin-bottom: 10px;">
+                    st.markdown("##### 🟢 Nice to have — Learn if time permits")
+                    cards_html = '<div class="card-grid">'
+                    for skill in low_priority:
+                        cards_html += f"""
+                        <div class="card">
+                            <div style="background: {low_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {low_border}; height: 100%;">
                                 <div style="font-weight: 600; color: {low_title} !important;">{skill.title()}</div>
                             </div>
-                            """, unsafe_allow_html=True)
-                            details = skill_rule_meta.get(skill, {})
-                            if details and details.get('consequents_list'):
-                                with st.expander(f"Inspect '{skill.title()}' consequents", expanded=False):
-                                    st.write("**Parsed consequents (sample):**")
-                                    for c in details.get('consequents_list', [])[:10]:
-                                        st.write(f"- {c.title()}")
+                        </div>
+                        """
+                    cards_html += '</div>'
+                    st.markdown(cards_html, unsafe_allow_html=True)
 
             except Exception as e:
                 # Fallback: simple list display
                 st.markdown(f"**Missing Skills ({len(missing)}):**")
-                cols = st.columns(4)
+                cols = st.columns(3)
                 for idx, skill in enumerate(sorted(missing)):
-                    with cols[idx % 4]:
+                    with cols[idx % 3]:
                         st.markdown(f"""
                         <div style="background: {missing_bg}; border-radius: 8px; padding: 10px; border-left: 3px solid {missing_border};">
                             <div style="font-weight: 600; color: {missing_title};">✗ {skill.title()}</div>
@@ -1406,10 +1461,11 @@ if st.session_state.user_skills and st.session_state.selected_job:
         "><span style="font-size: 1.75rem;">🤖</span> AI-Powered Skill Recommendations (Association Rules)</h2>
         """, unsafe_allow_html=True)
         
-        st.markdown("""
-        **How this works:** Our unsupervised association rules mining learned patterns from 200,000+ job profiles.
-        Based on your current skills, these skills are frequently learned together by professionals advancing their careers.
-        """)
+        with st.expander("ℹ️ How this works", expanded=False):
+            st.markdown("""
+            Our unsupervised association rules mining learned patterns from 200,000+ job profiles.
+            Based on your current skills, these skills are frequently learned together by professionals advancing their careers.
+            """)
         
         # Load and display association rules recommendations
         try:
@@ -1430,9 +1486,8 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 # Filter out 'Other' recommendation (noisy, not meaningful)
                 recs = [r for r in recs if r.get('skill', '').strip().lower() != 'other']
                 
-                st.caption(f"📊 Generated from {num_rules:,} association rules ({len(recs)} recommendations found)")
-                
                 if recs:
+                    st.caption(f"📊 Generated from {num_rules:,} association rules ({len(recs)} recommendations found)")
                     # Display recommendations in a nice grid
                     rec_cols = st.columns(2)
                     for idx, rec in enumerate(recs):
@@ -1481,9 +1536,8 @@ if st.session_state.user_skills and st.session_state.selected_job:
     # ====================
     # SECTION 3: PERSONALIZED LEARNING PATH
     # ====================
-    st.header("3️⃣ Personalized Learning Path")
-    st.caption("Prioritized by job importance and association-rule signals (model-powered)")
-    st.markdown("<span style='font-size:0.95rem;color:#a78bfa;'>Skills and phases are ranked by a combination of job requirement frequency and association-rule ML signals for this job.</span>", unsafe_allow_html=True)
+    st.markdown("<h2 class='section-title'>3️⃣ Personalized learning path</h2>", unsafe_allow_html=True)
+    st.markdown("<div class='section-sub'>Skills are ranked using job demand and ML patterns for this role.</div>", unsafe_allow_html=True)
     
     # ===== NEW: Model-Driven Learning Path (powered by Association Rules) =====
     if missing:
@@ -1543,7 +1597,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     border-radius: 8px;
                     padding: 12px 16px;
                     border-left: 3px solid #10b981;
-                    margin: 1rem 0;
+                    margin: 0.5rem 0 1rem 0;
                 ">
                     <p style="margin: 0; color: {colors['text_primary']}; font-weight: 600; font-size: 0.95rem;">
                     ✅ Model-Powered Learning Path
@@ -1553,11 +1607,11 @@ if st.session_state.user_skills and st.session_state.selected_job:
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Missing Skills", missing_count, label_visibility="collapsed")
+                    st.markdown(f"<div style='text-align:center;'><div style='font-weight:700; font-size:1.3rem;'>{missing_count}</div><div style='font-size:0.75rem; color:#666; margin-top:4px;'>Missing Skills</div></div>", unsafe_allow_html=True)
                 with col2:
-                    st.metric("Phases", len(phases), label_visibility="collapsed")
+                    st.markdown(f"<div style='text-align:center;'><div style='font-weight:700; font-size:1.3rem;'>{len(phases)}</div><div style='font-size:0.75rem; color:#666; margin-top:4px;'>Phases</div></div>", unsafe_allow_html=True)
                 with col3:
-                    st.metric("Est. Duration", f"{total_weeks}w", label_visibility="collapsed")
+                    st.markdown(f"<div style='text-align:center;'><div style='font-weight:700; font-size:1.3rem;'>{total_weeks:.1f}w</div><div style='font-size:0.75rem; color:#666; margin-top:4px;'>Est. Duration</div></div>", unsafe_allow_html=True)
 
                 for phase in phases:
                     if not isinstance(phase, dict):
@@ -1791,7 +1845,8 @@ if st.session_state.user_skills and st.session_state.selected_job:
 # ====================
 # SECTION 4: SIMILAR OPPORTUNITIES
 # ====================
-st.header("4️⃣ Similar Opportunities")
+st.markdown("<h2 class='section-title'>4️⃣ Similar opportunities</h2>", unsafe_allow_html=True)
+st.markdown("<div class='section-sub'>Jobs that share a similar skill profile with your selected role.</div>", unsafe_allow_html=True)
 
 # Path to the minimal mapping file created by the offline script. Prefer the minimal gzip file for the app.
 CLUSTER_MAPPING_PATH = "data/processed/job_clusters_minimal.pkl.gz"
@@ -1850,7 +1905,6 @@ else:
                     # If enriching fails, fall back to minimal display
                     pass
 
-                st.subheader("Jobs in the same cluster")
                 # Render as styled cards in a responsive grid rather than a raw dataframe
                 try:
                     disp = display_df.reset_index(drop=True)
@@ -1858,9 +1912,14 @@ else:
                     if num == 0:
                         st.info("No similar jobs found in the mapping.")
                     else:
+                        # Show first 4 by default
+                        show_more = st.session_state.get('show_more_similar', False)
+                        limit = 8 if show_more else 4
+                        disp_subset = disp.head(limit)
+                        
                         cols_count = min(4, num)
                         cols = st.columns(cols_count)
-                        for i, row in disp.iterrows():
+                        for i, row in disp_subset.iterrows():
                             col = cols[i % cols_count]
                             title = row.get('job_title') if pd.notna(row.get('job_title')) else 'Untitled'
                             company = row.get('company') if pd.notna(row.get('company')) else 'N/A'
@@ -1868,13 +1927,21 @@ else:
                             cluster_badge = row.get('cluster_id')
                             col.markdown(f"""
                                 <div style="background: {colors['bg_secondary']}; border-radius: 10px; padding: 12px; margin: 6px; border-left: 4px solid {colors['accent_primary']};">
-                                    <div style="display:flex; justify-content: space-between; align-items:center;">
-                                        <div style="font-weight: 700; color: {colors['text_primary']};">{title}</div>
-                                        <div style="background: {colors['accent_secondary']}; color: white; padding: 4px 8px; border-radius: 12px; font-size:0.85rem;">Cluster {cluster_badge}</div>
-                                    </div>
-                                    <div style="color: {colors['text_secondary']}; font-size:0.92rem; margin-top:6px;">{company} • {location}</div>
+                                    <div style="font-weight: 700; color: {colors['text_primary']}; margin-bottom: 8px;">{title}</div>
+                                    <div style="color: {colors['text_secondary']}; font-size:0.9rem; margin-bottom: 8px;">{company} • {location}</div>
+                                    <div style="background: {colors['accent_secondary']}; color: white; padding: 3px 8px; border-radius: 12px; font-size:0.8rem; display:inline-block;">Cluster {cluster_badge}</div>
                                 </div>
                             """, unsafe_allow_html=True)
+                        
+                        # Show more button if there are additional jobs
+                        if num > 4 and not show_more:
+                            if st.button("Show more similar jobs", key="show_more_btn"):
+                                st.session_state.show_more_similar = True
+                                st.rerun()
+                        elif show_more and num > 4:
+                            if st.button("Show fewer similar jobs", key="show_fewer_btn"):
+                                st.session_state.show_more_similar = False
+                                st.rerun()
                 except Exception:
                     # Fallback to simple table if anything goes wrong
                     st.dataframe(display_df.reset_index(drop=True))
