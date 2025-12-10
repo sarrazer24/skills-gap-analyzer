@@ -1965,7 +1965,7 @@ st.markdown("""
         Built with Machine Learning (Association Rules & K-Means Clustering)
     </p>
     <p style="margin: 0.5rem 0; font-size: 0.85rem;">
-        © 2024 | <a href="https://github.com/sarrazer24/skills-gap-analyzer" style="color: {colors['accent_primary']}; text-decoration: none;">GitHub Repository</a>
+        © 2025 | <a href="https://github.com/sarrazer24/skills-gap-analyzer" style="color: {colors['accent_primary']}; text-decoration: none;">GitHub Repository</a>
     </p>
 </div>
 """, unsafe_allow_html=True)

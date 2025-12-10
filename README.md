@@ -92,13 +92,13 @@ The ensemble aggregates recommendations across all three models to provide both 
 
 ## Assignment Alignment
 
-This project satisfies the following course requirements:
-
-1. **Unsupervised Learning** – FP-Growth and Apriori discover patterns without labeled data
-2. **Multiple Datasets** – Job profiles, skills taxonomy, enriched mappings
-3. **Multiple Models** – A1, A2, A3 with different granularities and rule counts
-4. **Model Deployment** – Ensemble approach balances reliability and coverage
-5. **Real-time Predictions** – Live rule matching on user-selected skills in the app
+| Requirement               | Implementation                                               |
+| ------------------------- | ------------------------------------------------------------ |
+| **Unsupervised Learning** | FP-Growth and Apriori discover patterns without labeled data |
+| **Multiple Datasets**     | Job profiles, skills taxonomy, enriched mappings             |
+| **Multiple Models**       | A1, A2, A3 with different granularities and rule counts      |
+| **Model Deployment**      | Ensemble approach balances reliability and coverage          |
+| **Real-time Predictions** | Live rule matching on user-selected skills in the app        |
 
 ## Usage Example
 
@@ -125,8 +125,9 @@ _(Placeholder for UI screenshots – to be added)_
 
 MIT License – see [LICENSE](LICENSE) file for details.
 
-## Author
+## Authors
 
-**Sarra Zer** – [@sarrazer24](https://github.com/sarrazer24)
+- **Sarra Zer** – [@sarrazer24](https://github.com/sarrazer24)
+- **Riham ESI** – [@riham-esi](https://github.com/riham-esi)
 
 **Last Updated:** December 2025
