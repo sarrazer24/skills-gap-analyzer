@@ -91,7 +91,6 @@ def make_course_link(name: str) -> str:
     # Generic fallback: Google search
     q = urllib.parse.quote_plus(name)
     return f'<a href="https://www.google.com/search?q={q}" target="_blank" rel="noopener">{name}</a>'
-"""Professional Tech-Focused UI with Light/Dark Mode Support"""
 
 # Initialize session state variables
 if 'theme' not in st.session_state:
@@ -1314,23 +1313,11 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     for idx, skill in enumerate(high_priority):
                         with cols[idx % 4]:
                             category = skill_to_cat_map.get(skill, 'general')
-                            # build rule meta label if available
-                            meta_html = ""
-                            meta = skill_rule_meta.get(skill, {})
-                            if meta:
-                                avg_conf = meta.get('avg_confidence')
-                                unlocks_job = meta.get('unlocks_job', 0)
-                                total_cons = meta.get('total_consequents', 0)
-                                meta_html = f"<div style=\"font-size:0.72rem;color: {critical_sub} !important; margin-top:8px;\">🔗 Unlocks (job): {unlocks_job} • Cons: {total_cons}"
-                                if avg_conf is not None:
-                                    meta_html += f" • Conf: {avg_conf:.2f}"
-                                meta_html += "</div>"
 
                             st.markdown(f"""
                             <div style="background: {critical_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {critical_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {critical_title} !important;">{skill.title()}</div>
                                 <div style="font-size: 0.8rem; color: {critical_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
-                                {meta_html}
                             </div>
                             """, unsafe_allow_html=True)
                             # Add inspect expander for raw consequents
@@ -1347,22 +1334,11 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     for idx, skill in enumerate(med_priority):
                         with cols[idx % 4]:
                             category = skill_to_cat_map.get(skill, 'general')
-                            meta_html = ""
-                            meta = skill_rule_meta.get(skill, {})
-                            if meta:
-                                avg_conf = meta.get('avg_confidence')
-                                unlocks_job = meta.get('unlocks_job', 0)
-                                total_cons = meta.get('total_consequents', 0)
-                                meta_html = f"<div style=\"font-size:0.72rem;color: {med_sub} !important; margin-top:8px;\">🔗 Unlocks (job): {unlocks_job} • Cons: {total_cons}"
-                                if avg_conf is not None:
-                                    meta_html += f" • Conf: {avg_conf:.2f}"
-                                meta_html += "</div>"
 
                             st.markdown(f"""
                             <div style="background: {med_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {med_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {med_title} !important;">{skill.title()}</div>
                                 <div style="font-size: 0.8rem; color: {med_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
-                                {meta_html}
                             </div>
                             """, unsafe_allow_html=True)
                             details = skill_rule_meta.get(skill, {})
@@ -1378,22 +1354,11 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     for idx, skill in enumerate(low_priority):
                         with cols[idx % 4]:
                             category = skill_to_cat_map.get(skill, 'general')
-                            meta_html = ""
-                            meta = skill_rule_meta.get(skill, {})
-                            if meta:
-                                avg_conf = meta.get('avg_confidence')
-                                unlocks_job = meta.get('unlocks_job', 0)
-                                total_cons = meta.get('total_consequents', 0)
-                                meta_html = f"<div style=\"font-size:0.72rem;color: {low_sub} !important; margin-top:8px;\">🔗 Unlocks (job): {unlocks_job} • Cons: {total_cons}"
-                                if avg_conf is not None:
-                                    meta_html += f" • Conf: {avg_conf:.2f}"
-                                meta_html += "</div>"
 
                             st.markdown(f"""
                             <div style="background: {low_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {low_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {low_title} !important;">{skill.title()}</div>
                                 <div style="font-size: 0.8rem; color: {low_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
-                                {meta_html}
                             </div>
                             """, unsafe_allow_html=True)
                             details = skill_rule_meta.get(skill, {})
@@ -1458,7 +1423,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
         # Load and display association rules recommendations
         try:
             from src.models.association_miner import get_skill_recommendations_with_explanations
-            
+            # Always pass both user_skills and target_job_skills for job-aware recommendations
             rec_result = get_skill_recommendations_with_explanations(
                 user_skills=user_skills_normalized,
                 target_job_skills=job_skills,
@@ -1471,7 +1436,10 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 recs = rec_result.get('recommendations', [])
                 num_rules = rec_result.get('num_rules_loaded', 0)
                 
-                st.caption(f"📊 Generated from {num_rules:,} association rules ({len(rec_result.get('recommendations', []))} recommendations found)")
+                # Filter out 'Other' recommendation (noisy, not meaningful)
+                recs = [r for r in recs if r.get('skill', '').strip().lower() != 'other']
+                
+                st.caption(f"📊 Generated from {num_rules:,} association rules ({len(recs)} recommendations found)")
                 
                 if recs:
                     # Display recommendations in a nice grid
@@ -1523,136 +1491,103 @@ if st.session_state.user_skills and st.session_state.selected_job:
     # SECTION 3: PERSONALIZED LEARNING PATH
     # ====================
     st.header("3️⃣ Personalized Learning Path")
-    st.caption("Model-powered roadmap based on your gaps and association-rule patterns")
+    st.caption("Prioritized by job importance and association-rule signals (model-powered)")
+    st.markdown("<span style='font-size:0.95rem;color:#a78bfa;'>Skills and phases are ranked by a combination of job requirement frequency and association-rule ML signals for this job.</span>", unsafe_allow_html=True)
     
     # ===== NEW: Model-Driven Learning Path (powered by Association Rules) =====
     if missing:
         with st.spinner("⏳ Generating personalized learning path..."):
+            # Load ensemble if available (non-fatal)
             try:
                 from src.models.association_miner import AssociationEnsemble, get_association_rules_from_csv
-                from src.models.learning_path_generator import build_personalized_learning_path
-                
-                # Try to load ensemble from CSV files
-                ensemble = None
-                ensemble_loaded = False
-                try:
+            except Exception:
+                AssociationEnsemble = None
+                get_association_rules_from_csv = None
+
+            from src.models.learning_path_generator import build_personalized_learning_path
+
+            # Try to load ensemble (best-effort)
+            ensemble = None
+            try:
+                if get_association_rules_from_csv is not None:
                     ensemble = get_association_rules_from_csv('data/processed')
-                    ensemble_loaded = ensemble is not None and len(ensemble.models) > 0
-                except Exception:
-                    ensemble = None
-                    ensemble_loaded = False
-                
-                # Always call build_personalized_learning_path (it returns a valid dict, never None)
-                path_result = build_personalized_learning_path(
+                    # Verify ensemble has models loaded
+                    if ensemble is None or not getattr(ensemble, 'models', []):
+                        ensemble = None
+            except Exception:
+                ensemble = None
+
+            # Call builder defensively
+            try:
+                path = build_personalized_learning_path(
                     user_skills=user_skills,
                     job_skills=job_skills,
-                    ensemble=ensemble if ensemble_loaded else None,
+                    ensemble=ensemble,
                     max_phases=4
                 )
-                
-                # Defensive checks: ensure path_result is a valid dict with expected keys
-                if not path_result or not isinstance(path_result, dict):
-                    st.error("Learning path generation failed. Please try again.")
-                    st.info("Showing missing skills by requirement frequency instead:")
-                    sorted_missing = sorted(missing)
-                    for idx, skill in enumerate(sorted_missing[:10], 1):
-                        st.write(f"{idx}. **{skill.title()}**")
-                else:
-                    # Extract phases safely
-                    phases = path_result.get('phases', [])
-                    total_weeks = path_result.get('total_weeks', 0)
-                    missing_count = path_result.get('missing_count', len(missing))
-                    message = path_result.get('message')
-                    
-                    # Check if we have valid phases
-                    if phases and isinstance(phases, list) and len(phases) > 0:
-                        # Display header with model info
-                        st.markdown(f"""
-                        <div style="
-                            background: linear-gradient(135deg, #10b981 0%, rgba(16, 185, 129, 0.1) 100%);
-                            border-radius: 8px;
-                            padding: 12px 16px;
-                            border-left: 3px solid #10b981;
-                            margin: 1rem 0;
-                        ">
-                            <p style="margin: 0; color: {colors['text_primary']}; font-weight: 600; font-size: 0.95rem;">
-                            ✅ Model-Powered Learning Path
-                            </p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # Compact metrics
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Missing Skills", missing_count, label_visibility="collapsed")
-                        with col2:
-                            st.metric("Phases", len(phases), label_visibility="collapsed")
-                        with col3:
-                            st.metric("Est. Duration", f"{total_weeks}w", label_visibility="collapsed")
-                        
-                        # Display each phase in compact expanders
-                        for phase in phases:
-                            if not isinstance(phase, dict):
-                                continue
-                            
-                            phase_num = phase.get('phase_number', 0)
-                            phase_title = phase.get('title', 'Phase')
-                            phase_difficulty = phase.get('difficulty', 'Medium')
-                            phase_weeks = phase.get('duration_weeks', 0)
-                            phase_skills = phase.get('skills', [])
-                            
-                            exp_label = f"Phase {phase_num}: {phase_title} ({phase_difficulty}) — {phase_weeks}w"
-                            with st.expander(exp_label, expanded=(phase_num == 1)):
-                                # Compact skills table
-                                if phase_skills and isinstance(phase_skills, list):
-                                    skills_data = []
-                                    for s in phase_skills:
-                                        if isinstance(s, dict):
-                                            skills_data.append({
-                                                'Skill': s.get('name', 'Unknown').title(),
-                                                'Importance': f"{s.get('final_score', 0):.0%}",
-                                                'Sources': ', '.join(s.get('sources', [])) if s.get('sources') else "Gap"
-                                            })
-                                    
-                                    if skills_data:
-                                        st.dataframe(
-                                            pd.DataFrame(skills_data),
-                                            use_container_width=True,
-                                            hide_index=True
-                                        )
-                                
-                                # Why these skills
-                                for skill in phase_skills:
-                                    if isinstance(skill, dict):
-                                        skill_name = skill.get('name', 'Skill').title()
-                                        explanation = skill.get('explanation', 'No explanation available.')
-                                        with st.expander(f"Why learn {skill_name}?", expanded=False):
-                                            st.caption(explanation)
-                    
-                    elif message:
-                        # Show message if provided (e.g., "You already have all required skills!")
-                        st.success(message) if "already" in message.lower() else st.info(message)
-                        
-                        # Show missing skills as fallback
-                        st.write("**Missing skills by requirement frequency:**")
-                        sorted_missing = sorted(missing)
-                        for idx, skill in enumerate(sorted_missing[:10], 1):
-                            st.write(f"{idx}. **{skill.title()}**")
-                    
-                    else:
-                        # No phases, no explicit message - show fallback
-                        st.info("No model-powered learning path available. Showing missing skills by requirement frequency:")
-                        sorted_missing = sorted(missing)
-                        for idx, skill in enumerate(sorted_missing[:10], 1):
-                            st.write(f"{idx}. **{skill.title()}**")
-            
             except Exception as e:
+                path = None
                 error_msg = str(e)
-                st.error(f"Could not generate learning path: {error_msg[:100]}")
-                st.info("Showing missing skills by requirement frequency instead:")
-                sorted_missing = sorted(missing)
-                for idx, skill in enumerate(sorted_missing[:10], 1):
-                    st.write(f"{idx}. **{skill.title()}**")
+
+            # Safe-check result and render
+            sorted_missing = sorted(missing)
+            if not path or not isinstance(path, dict) or 'phases' not in path or not path.get('phases'):
+                # Fallback behavior (model unavailable or no phases)
+                if 'error_msg' in locals():
+                    st.info("Showing missing skills by requirement frequency instead (model-based path unavailable).")
+                else:
+                    st.info("No model-powered learning path available for this profile yet. Showing missing skills by requirement frequency instead.")
+
+                for i, skill in enumerate(sorted_missing[:10], start=1):
+                    st.write(f"{i}. **{skill.title()}**")
+            else:
+                # Safe rendering of phases
+                phases = path.get('phases', [])
+                total_weeks = float(path.get('total_weeks', 0.0) or 0.0)
+                missing_count = int(path.get('missing_count', len(missing)))
+
+                st.markdown(f"""
+                <div style="
+                    background: linear-gradient(135deg, #10b981 0%, rgba(16, 185, 129, 0.1) 100%);
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    border-left: 3px solid #10b981;
+                    margin: 1rem 0;
+                ">
+                    <p style="margin: 0; color: {colors['text_primary']}; font-weight: 600; font-size: 0.95rem;">
+                    ✅ Model-Powered Learning Path
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Missing Skills", missing_count, label_visibility="collapsed")
+                with col2:
+                    st.metric("Phases", len(phases), label_visibility="collapsed")
+                with col3:
+                    st.metric("Est. Duration", f"{total_weeks}w", label_visibility="collapsed")
+
+                for phase in phases:
+                    if not isinstance(phase, dict):
+                        continue
+                    phase_num = phase.get('phase_number', '?')
+                    phase_title = phase.get('title', 'Phase')
+                    phase_difficulty = phase.get('difficulty', 'Medium')
+                    phase_weeks = phase.get('duration_weeks', 0)
+                    phase_skills = phase.get('skills', []) or []
+
+                    exp_label = f"Phase {phase_num}: {phase_title} ({phase_difficulty}) — {phase_weeks}w"
+                    with st.expander(exp_label, expanded=(phase_num == 1)):
+                        # Render skills safely
+                        if phase_skills:
+                            for s in phase_skills:
+                                if isinstance(s, dict):
+                                    name = s.get('name', '').title() or 'Unknown'
+                                    score = s.get('final_score', 0)
+                                    st.write(f"- {name} (score: {score:.2f})")
+                                else:
+                                    st.write(f"- {str(s)}")
     
     else:
         st.info("Add skills and select a job to see personalized learning path recommendations.")

@@ -5,7 +5,7 @@ Uses association rules to create optimal learning paths with prerequisites.
 """
 
 import pandas as pd
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from collections import defaultdict, deque
 
 
@@ -412,7 +412,7 @@ def build_personalized_learning_path(
     job_skills: List[str],
     ensemble: Optional[object] = None,
     max_phases: int = 5,
-) -> Dict:
+) -> Dict[str, Any]:
     """
     Build a personalized learning path using gap analysis + association rule models.
     
@@ -464,14 +464,14 @@ def build_personalized_learning_path(
     from src.models.skill_matcher import SkillMatcher
     
     # Step 1: Run gap analysis
-    matcher = SkillMatcher()
+    matcher = SkillMatcher(skill_to_category={})
     gap_result = matcher.analyze_gap(user_skills, job_skills)
     
-    missing_skills = gap_result['missing']
+    missing_skills = gap_result.get('missing', [])
     if not missing_skills:
         return {
             "phases": [],
-            "total_weeks": 0,
+            "total_weeks": 0.0,
             "model_available": ensemble is not None,
             "missing_count": 0,
             "message": "You already have all required skills! 🎉"
@@ -482,32 +482,33 @@ def build_personalized_learning_path(
         missing_skills,
         user_skills,
         gap_result['skill_importance'],
-        ensemble
+        ensemble,
+        job_skills
     )
-    
-    # Ensure skill_scores is a valid dict
+
+    # Always build phases if we have skill_scores (which we should, since gap analysis provides base_importance)
     if not skill_scores or not isinstance(skill_scores, dict):
         return {
             "phases": [],
-            "total_weeks": 0,
+            "total_weeks": 0.0,
             "model_available": ensemble is not None,
             "missing_count": len(missing_skills),
             "message": "Could not score missing skills. Showing skills by job requirement instead."
         }
-    
+
     # Step 3: Sort by final score
     sorted_skills = sorted(
         skill_scores.items(),
         key=lambda x: x[1]['final_score'],
         reverse=True
     )
-    
+
     # Step 4: Group into phases
     phases = _create_learning_phases(sorted_skills, max_phases)
-    
+
     # Calculate totals
-    total_weeks = sum(p['duration_weeks'] for p in phases)
-    
+    total_weeks = float(sum(p.get('duration_weeks', 0) for p in phases))
+
     return {
         "phases": phases,
         "total_weeks": total_weeks,
@@ -521,8 +522,9 @@ def _score_missing_skills(
     missing_skills: List[str],
     user_skills: List[str],
     gap_importance: Dict[str, float],
-    ensemble: Optional[object] = None
-) -> Dict[str, Dict]:
+    ensemble: Optional[object] = None,
+    job_skills: Optional[List[str]] = None
+    ) -> Dict[str, Dict]:
     """
     Score each missing skill using gap analysis + association rule models.
     
@@ -544,46 +546,46 @@ def _score_missing_skills(
     
     for skill in missing_skills:
         try:
-            # Get base importance from gap analysis
             base_importance = gap_importance.get(skill, 0.5)
-            
-            # Get model score if ensemble available
             model_score = 0.0
             sources = []
             details = {}
-            
+
+            # Use job_skills for job-aware boost
+            job_skills_set = set(s.lower().strip() for s in (job_skills or []))
             if ensemble is not None:
                 try:
-                    # Query ensemble for this skill
-                    model_result = ensemble.score_skill_for_user(
-                        skill=skill,
-                        user_skills=user_skills,
-                        job_skills=None  # Not using job context for now
-                    )
-                    
-                    # Safely extract result fields
-                    if model_result and isinstance(model_result, dict):
-                        model_score = model_result.get('model_score', 0.0) or 0.0
-                        sources = model_result.get('sources', []) or []
-                        details = model_result.get('details', {}) or {}
-                    
+                    # Query all rules for this skill and user/job context
+                    recs_df = None
+                    if hasattr(ensemble, 'get_recommendations'):
+                        recs_df = ensemble.get_recommendations(user_skills, top_n=50, target_job_skills=job_skills)
+                    if recs_df is not None and not recs_df.empty:
+                        # Find the row for this skill
+                        skill_row = recs_df[recs_df['skill'].str.lower().str.strip() == skill.lower().strip()]
+                        if not skill_row.empty:
+                            # Use max(confidence * lift * job_boost) as model_score
+                            skill_row = skill_row.iloc[0]
+                            model_score = float(skill_row.get('confidence', 0.0)) * float(skill_row.get('lift', 1.0)) * float(skill_row.get('job_boost', 1.0))
+                            sources = ["A1/A2/A3"]
+                            details = {
+                                'confidence': float(skill_row.get('confidence', 0.0)),
+                                'lift': float(skill_row.get('lift', 1.0)),
+                                'job_boost': float(skill_row.get('job_boost', 1.0)),
+                            }
                 except Exception:
-                    # If model fails, fall back to gap-only
                     model_score = 0.0
                     sources = []
                     details = {}
-            
-            # Combine scores: 60% gap importance + 40% model signal
+
             final_score = 0.6 * base_importance + 0.4 * model_score if model_score > 0 else base_importance
-            
-            # Build explanation
+
             if sources:
                 sources_str = ", ".join(sources)
                 explanation = (
                     f"Important for the job ({base_importance:.0%}). "
-                    f"Model signals: People with your skills often learn this "
+                    f"Model signals: People with your skills and this job often learn this "
                     f"(confidence: {details.get('confidence', 0):.0%}, "
-                    f"lift: {details.get('lift', 0):.1f}x). "
+                    f"lift: {details.get('lift', 0):.1f}x, job boost: {details.get('job_boost', 1.0):.2f}). "
                     f"Sources: {sources_str}."
                 )
             else:
@@ -591,7 +593,7 @@ def _score_missing_skills(
                     f"Important for the job ({base_importance:.0%}). "
                     f"No model signals available for this skill."
                 )
-            
+
             skill_scores[skill] = {
                 'base_importance': base_importance,
                 'model_score': model_score,
@@ -600,9 +602,7 @@ def _score_missing_skills(
                 'details': details,
                 'explanation': explanation
             }
-        
         except Exception:
-            # If anything fails for a single skill, add a default entry
             base_importance = gap_importance.get(skill, 0.5)
             skill_scores[skill] = {
                 'base_importance': base_importance,

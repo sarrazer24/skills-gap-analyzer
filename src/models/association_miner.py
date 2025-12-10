@@ -320,7 +320,7 @@ class AssociationMiner:
         mask = self.rules['consequents'].apply(skill_in_consequents)
         return self.rules[mask].sort_values('confidence', ascending=False)
     
-    def get_recommendations(self, user_skills: List[str], top_n: int = 10) -> pd.DataFrame:
+    def get_recommendations(self, user_skills: List[str], top_n: int = 10, target_job_skills: Optional[List[str]] = None) -> pd.DataFrame:
         """
         Get skill recommendations based on user's current skills
         
@@ -340,6 +340,8 @@ class AssociationMiner:
         user_skills_set = set(s.lower().strip() for s in user_skills if s)
         if not user_skills_set:
             return pd.DataFrame()
+
+        target_job_skills_set = set(s.lower().strip() for s in (target_job_skills or []) if s)
 
         # Try to enrich user_skills_set with category mappings from the skills taxonomy
         try:
@@ -385,7 +387,7 @@ class AssociationMiner:
                 # Handle different formats of antecedents/consequents
                 antecedents = rule.get('antecedents', set())
                 consequents = rule.get('consequents', set())
-                
+
                 # Convert to sets if needed
                 if isinstance(antecedents, (frozenset, set)):
                     antecedents = set(antecedents)
@@ -393,34 +395,47 @@ class AssociationMiner:
                     antecedents = {antecedents}
                 else:
                     antecedents = set(antecedents) if antecedents else set()
-                
+
                 if isinstance(consequents, (frozenset, set)):
                     consequents = set(consequents)
                 elif isinstance(consequents, str):
                     consequents = {consequents}
                 else:
                     consequents = set(consequents) if consequents else set()
-                
+
                 # Normalize
                 antecedents = set(s.lower().strip() if isinstance(s, str) else str(s).lower().strip() for s in antecedents if s)
                 consequents = set(s.lower().strip() if isinstance(s, str) else str(s).lower().strip() for s in consequents if s)
-                
+
+                # --- FILTERS: Only keep strong, non-generic rules ---
+                confidence = float(rule.get('confidence', 0))
+                lift = float(rule.get('lift', 1.0))
+                # Exclude generic consequents
+                generic_exclude = {"other", "soft skills"}
+                if confidence < 0.70 or lift < 1.10:
+                    continue
+                if any((c in generic_exclude) for c in consequents):
+                    continue
+
                 # Relaxed matching: consider rules where antecedents are a subset OR overlap with user skills
                 if antecedents and (antecedents.issubset(user_skills_set) or len(antecedents & user_skills_set) > 0):
                     match_count = len(antecedents & user_skills_set)
                     match_fraction = match_count / max(1, len(antecedents))
+                    # Job-aware: boost if rule antecedents intersect with target_job_skills
+                    job_boost = 1.3 if target_job_skills_set and len(antecedents & target_job_skills_set) > 0 else 1.0
                     # Get skills in consequents that user doesn't have
                     new_skills = consequents - user_skills_set
-                    
+
                     for skill in new_skills:
                         if skill and isinstance(skill, str):  # Ensure skill is valid
                             recommendations.append({
                                 'skill': skill,
                                 'based_on': ', '.join(sorted(antecedents)),
-                                'confidence': float(rule.get('confidence', 0)),
-                                'lift': float(rule.get('lift', 0)),
+                                'confidence': confidence,
+                                'lift': lift,
                                 'support': float(rule.get('support', 0)),
-                                'antecedent_match_fraction': match_fraction
+                                'antecedent_match_fraction': match_fraction,
+                                'job_boost': job_boost
                             })
             except Exception as e:
                 # Skip rules that cause errors
@@ -429,15 +444,14 @@ class AssociationMiner:
         if not recommendations:
             return pd.DataFrame()
 
-        # Convert to DataFrame and sort by match fraction then confidence
+        # Convert to DataFrame and sort by boosted score
         rec_df = pd.DataFrame(recommendations)
-        if 'antecedent_match_fraction' in rec_df.columns:
-            rec_df = rec_df.sort_values(['antecedent_match_fraction', 'confidence'], ascending=[False, False])
-        else:
-            rec_df = rec_df.sort_values('confidence', ascending=False)
-        rec_df = rec_df.drop_duplicates(subset=['skill'])
-
-        return rec_df.head(top_n)
+        if not rec_df.empty:
+            rec_df['boosted_score'] = rec_df['confidence'] * rec_df['lift'] * rec_df.get('job_boost', 1.0)
+            rec_df = rec_df.sort_values(['boosted_score', 'confidence'], ascending=[False, False])
+            rec_df = rec_df.drop_duplicates(subset=['skill'])
+            return rec_df.head(top_n)
+        return rec_df
     
     def save(self, path: str):
         """Save the model to disk"""
@@ -574,7 +588,7 @@ class AssociationEnsemble:
                 # ignore problematic files
                 continue
 
-    def get_recommendations(self, user_skills: List[str], top_n: int = 10) -> pd.DataFrame:
+    def get_recommendations(self, user_skills: List[str], top_n: int = 10, target_job_skills: Optional[List[str]] = None) -> pd.DataFrame:
         """
         Query each loaded association rule model and merge recommendations.
         
@@ -622,7 +636,7 @@ class AssociationEnsemble:
             miner: AssociationMiner = entry.get('miner')
             try:
                 # Ask each miner for more than top_n to allow merging
-                rec_df = miner.get_recommendations(user_skills, top_n=top_n * 3)
+                rec_df = miner.get_recommendations(user_skills, top_n=top_n * 3, target_job_skills=target_job_skills)
             except Exception:
                 rec_df = pd.DataFrame()
 
@@ -1078,7 +1092,7 @@ def get_skill_recommendations_with_explanations(
             return result
         
         # Get recommendations from ensemble
-        recs_df = ensemble.get_recommendations(user_skills_clean, top_n=top_n * 2)
+        recs_df = ensemble.get_recommendations(user_skills_clean, top_n=top_n * 2, target_job_skills=target_job_skills)
         
         if recs_df is None or recs_df.empty:
             result['success'] = True  # Not an error, just no rules matched
