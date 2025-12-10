@@ -1312,12 +1312,9 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     cols = st.columns(4)
                     for idx, skill in enumerate(high_priority):
                         with cols[idx % 4]:
-                            category = skill_to_cat_map.get(skill, 'general')
-
                             st.markdown(f"""
                             <div style="background: {critical_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {critical_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {critical_title} !important;">{skill.title()}</div>
-                                <div style="font-size: 0.8rem; color: {critical_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
                             </div>
                             """, unsafe_allow_html=True)
                             # Add inspect expander for raw consequents
@@ -1333,12 +1330,9 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     cols = st.columns(4)
                     for idx, skill in enumerate(med_priority):
                         with cols[idx % 4]:
-                            category = skill_to_cat_map.get(skill, 'general')
-
                             st.markdown(f"""
                             <div style="background: {med_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {med_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {med_title} !important;">{skill.title()}</div>
-                                <div style="font-size: 0.8rem; color: {med_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
                             </div>
                             """, unsafe_allow_html=True)
                             details = skill_rule_meta.get(skill, {})
@@ -1353,12 +1347,9 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     cols = st.columns(4)
                     for idx, skill in enumerate(low_priority):
                         with cols[idx % 4]:
-                            category = skill_to_cat_map.get(skill, 'general')
-
                             st.markdown(f"""
                             <div style="background: {low_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {low_border}; margin-bottom: 10px;">
                                 <div style="font-weight: 600; color: {low_title} !important;">{skill.title()}</div>
-                                <div style="font-size: 0.8rem; color: {low_sub} !important; margin-top: 6px;">{category.replace('_', ' ').title()}</div>
                             </div>
                             """, unsafe_allow_html=True)
                             details = skill_rule_meta.get(skill, {})
