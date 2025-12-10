@@ -680,6 +680,272 @@ class AssociationEnsemble:
         out_df = out_df.sort_values('score', ascending=False).reset_index(drop=True)
         return out_df.head(top_n)
 
+    def get_skill_model_scores(
+        self, 
+        user_skills: List[str], 
+        target_skills: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get detailed model scores for specific target skills based on user's current skills.
+        
+        This method is designed for the personalized learning path generator. It analyzes
+        how strongly each target skill is recommended by association rules, given the user's
+        current skills.
+        
+        For each target skill, it:
+        1. Searches all loaded models (A1, A2, A3) for rules where:
+           - antecedents overlap with user_skills
+           - consequents include this target skill
+        2. Returns the strongest signals (confidence, lift) from each model
+        3. Provides source information for explanation building
+        
+        Args:
+            user_skills: Skills the user currently has (case-insensitive)
+            target_skills: Skills to score (e.g., missing skills from gap analysis)
+        
+        Returns:
+            Dict mapping skill -> {
+                'model_scores': {
+                    'A1': {'confidence': float, 'lift': float, 'rule_count': int},
+                    'A2': {'confidence': float, 'lift': float, 'rule_count': int},
+                    'A3': {'confidence': float, 'lift': float, 'rule_count': int},
+                },
+                'best_confidence': float (max across all models),
+                'best_model': str (e.g., 'A1' or None),
+                'total_signals': int (how many rules found this skill),
+            }
+        
+        Example:
+            >>> ensemble = AssociationEnsemble()
+            >>> ensemble.load_paths(['data/processed/association_rules_categories.csv'])
+            >>> scores = ensemble.get_skill_model_scores(
+            ...     user_skills=['python', 'sql'],
+            ...     target_skills=['machine learning', 'spark', 'aws']
+            ... )
+            >>> for skill, signals in scores.items():
+            ...     print(f"{skill}: {signals['best_confidence']:.2%} (model: {signals['best_model']})")
+        """
+        
+        if not self.models or not user_skills or not target_skills:
+            return {}
+        
+        user_skills_set = set(s.lower().strip() for s in user_skills if s)
+        target_skills_set = set(s.lower().strip() for s in target_skills if s)
+        
+        results = {}
+        
+        # For each target skill, find model signals
+        for target_skill in target_skills_set:
+            skill_scores = {
+                'model_scores': {},
+                'best_confidence': 0.0,
+                'best_model': None,
+                'total_signals': 0,
+            }
+            
+            # Query each loaded model
+            for model_entry in self.models:
+                model_name = model_entry.get('name', 'unknown')
+                miner = model_entry.get('miner')
+                
+                if miner is None or miner.rules is None or len(miner.rules) == 0:
+                    continue
+                
+                # Find all rules matching this target skill
+                matching_rules = []
+                for idx, rule in miner.rules.iterrows():
+                    try:
+                        # Parse antecedents and consequents
+                        ants = self._parse_itemset(rule.get('antecedents'))
+                        cons = self._parse_itemset(rule.get('consequents'))
+                        
+                        # Check: user has some antecedents AND target skill is in consequents
+                        if ants and cons and (ants & user_skills_set) and (target_skill in cons):
+                            conf = float(rule.get('confidence', 0.0))
+                            lift = float(rule.get('lift', 1.0))
+                            matching_rules.append({'confidence': conf, 'lift': lift})
+                    except Exception:
+                        continue
+                
+                # Aggregate scores from matching rules
+                if matching_rules:
+                    best_conf = max(r['confidence'] for r in matching_rules)
+                    avg_lift = sum(r['lift'] for r in matching_rules) / len(matching_rules)
+                    
+                    skill_scores['model_scores'][model_name] = {
+                        'confidence': best_conf,
+                        'lift': avg_lift,
+                        'rule_count': len(matching_rules),
+                    }
+                    
+                    skill_scores['total_signals'] += len(matching_rules)
+                    
+                    # Track best overall confidence
+                    if best_conf > skill_scores['best_confidence']:
+                        skill_scores['best_confidence'] = best_conf
+                        skill_scores['best_model'] = model_name
+            
+            if skill_scores['model_scores']:  # Only include if we found signals
+                results[target_skill] = skill_scores
+        
+        return results
+    
+    def score_skill_for_user(
+        self,
+        skill: str,
+        user_skills: List[str],
+        job_skills: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Score a single skill for a user based on association rule models.
+        
+        This method is used by the personalized learning path generator to score
+        individual skills. It looks up rules where:
+        - The antecedents overlap with user_skills
+        - The consequents include the target skill
+        
+        It aggregates confidence and lift across all matching rules from all models.
+        
+        Args:
+            skill: The skill to score (e.g., 'spark')
+            user_skills: List of skills the user currently has
+            job_skills: Optional list of job skills (not currently used)
+        
+        Returns:
+            Dict with:
+            {
+                "model_score": 0.0-1.0 (normalized),
+                "sources": ["A1", "A2", "A3"] (which models recommended),
+                "details": {
+                    "confidence": 0.75,  # avg confidence across models
+                    "lift": 1.3,         # avg lift across models
+                    "rule_count": 8,     # how many rules matched
+                    "per_model": {       # breakdown by model
+                        "A1": {"confidence": 0.7, "lift": 1.2, "rules": 3},
+                        "A3": {"confidence": 0.75, "lift": 1.3, "rules": 5}
+                    }
+                }
+            }
+        """
+        if not self.models or not user_skills:
+            return {
+                "model_score": 0.0,
+                "sources": [],
+                "details": {"confidence": 0.0, "lift": 0.0, "rule_count": 0, "per_model": {}}
+            }
+        
+        user_skills_set = set(s.lower().strip() for s in user_skills if s)
+        skill_lower = skill.lower().strip()
+        
+        # Collect all matching rules across models
+        all_confidences = []
+        all_lifts = []
+        per_model_details = {}
+        matched_models = []
+        
+        for model_entry in self.models:
+            model_name = model_entry.get('name', 'unknown')
+            miner = model_entry.get('miner')
+            
+            if miner is None or not hasattr(miner, 'rules') or miner.rules is None or len(miner.rules) == 0:
+                continue
+            
+            model_confidences = []
+            model_lifts = []
+            rule_count = 0
+            
+            try:
+                for idx, rule in miner.rules.iterrows():
+                    try:
+                        # Parse antecedents and consequents
+                        ants = self._parse_itemset(rule.get('antecedents'))
+                        cons = self._parse_itemset(rule.get('consequents'))
+                        
+                        # Check: user has antecedents AND skill is in consequents
+                        if ants and cons and (ants & user_skills_set) and (skill_lower in cons):
+                            conf = float(rule.get('confidence', 0.0))
+                            lift = float(rule.get('lift', 1.0))
+                            
+                            model_confidences.append(conf)
+                            model_lifts.append(lift)
+                            all_confidences.append(conf)
+                            all_lifts.append(lift)
+                            rule_count += 1
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+            
+            # Store per-model details if we found matching rules
+            if model_confidences:
+                matched_models.append(model_name)
+                per_model_details[model_name] = {
+                    "confidence": max(model_confidences),  # max confidence from this model
+                    "lift": sum(model_lifts) / len(model_lifts),  # avg lift
+                    "rules": rule_count
+                }
+        
+        # Aggregate across all models
+        if all_confidences:
+            avg_confidence = sum(all_confidences) / len(all_confidences)
+            avg_lift = sum(all_lifts) / len(all_lifts) if all_lifts else 1.0
+            # Normalize model score to 0-1 range using confidence
+            model_score = min(1.0, avg_confidence)
+        else:
+            avg_confidence = 0.0
+            avg_lift = 0.0
+            model_score = 0.0
+        
+        return {
+            "model_score": model_score,
+            "sources": matched_models,
+            "details": {
+                "confidence": avg_confidence,
+                "lift": avg_lift,
+                "rule_count": len(all_confidences),
+                "per_model": per_model_details
+            }
+        }
+    
+    @staticmethod
+    def _parse_itemset(itemset_str: Any) -> set:
+        """
+        Parse antecedents/consequents from various formats.
+        Handles: frozenset strings, sets, lists, etc.
+        """
+        if not itemset_str or (isinstance(itemset_str, float) and pd.isna(itemset_str)):
+            return set()
+        
+        if isinstance(itemset_str, (set, frozenset)):
+            return set(str(x).lower().strip() for x in itemset_str if x)
+        
+        itemset_str = str(itemset_str).strip()
+        
+        # Try literal_eval first
+        try:
+            parsed = ast.literal_eval(itemset_str)
+            if isinstance(parsed, (set, frozenset, list, tuple)):
+                return set(str(x).lower().strip() for x in parsed if x)
+        except Exception:
+            pass
+        
+        # Try frozenset() extraction
+        if itemset_str.startswith('frozenset('):
+            try:
+                inner = itemset_str[10:-1]
+                parsed = ast.literal_eval(inner)
+                if isinstance(parsed, (set, frozenset, list, tuple, dict)):
+                    return set(str(x).lower().strip() for x in parsed if x)
+            except Exception:
+                pass
+        
+        # Fallback: split by comma
+        return set(
+            x.strip().lower() 
+            for x in itemset_str.split(',') 
+            if x.strip()
+        )
+
 
 # ============================================================================
 # PUBLIC HELPER FUNCTIONS FOR APP INTEGRATION

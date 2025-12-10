@@ -22,6 +22,7 @@ __pycache__/
 .Python
 venv/
 env/
+.env
 .venv/
 *.egg-info/
 dist/
@@ -60,3 +61,4 @@ htmlcov/
 
 # Cache directories
 .cache/
+.env

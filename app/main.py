@@ -12,12 +12,21 @@ try:
 except ImportError:
     pass  # python-dotenv not installed, will use environment variables only
 
+# DEBUG: Check which API key is loaded
+_api_key_env = os.getenv("OPEN_API_KEY") or os.getenv("OPENAI_API_KEY")
+if _api_key_env:
+    print(f"[DEBUG] API Key loaded: ...{_api_key_env[-20:]}")
+else:
+    print("[DEBUG] WARNING: No API key found in environment!")
+
 # Add project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.models.skill_extractor import SkillExtractor
 from src.models.gap_analyzer import SkillGapAnalyzer
 from src.data.loader import DataLoader
+from src.utils.cluster_analyzer import ClusterAnalyzer
+from src.utils.secrets import get_openai_api_key
 
 
 def locate_model_file(candidates):
@@ -550,43 +559,15 @@ def get_unique_job_titles(df):
 unique_job_titles = get_unique_job_titles(jobs_df)
 
 # ====================
-# SECTION 1: USER INPUT
+# SECTION 1: BUILD YOUR PROFILE
 # ====================
-st.markdown(f"""
-<div style="margin-top: 2rem;">
-    <h2 style="
-        color: {colors['text_primary']};
-        font-size: 1.5rem;
-        margin-bottom: 1.5rem;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        border-bottom: 2px solid {colors['accent_primary']};
-        padding-bottom: 12px;
-    "><span style="font-size: 1.75rem;">1️⃣</span> Build Your Profile</h2>
-</div>
-""", unsafe_allow_html=True)
+st.header("1️⃣ Build Your Profile")
 
-# Create columns for layout
+# Two-column layout: Skills on left, Job on right
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown(f"""
-    <div style="
-        background: {colors['card_gradient']};
-        border-radius: 12px;
-        padding: 20px;
-        border: 1px solid {colors['border']};
-    ">
-        <h3 style="
-            color: {colors['text_primary']};
-            margin-top: 0;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        "><span style="font-size: 1.5rem;">📊</span> Your Technical Skills</h3>
-    </div>
-    """, unsafe_allow_html=True)
+    st.subheader("📊 Your Technical Skills")
     
     # Method selector
     method = st.radio(
@@ -645,18 +626,16 @@ with col1:
                     else:
                         extractor_skills = ["python", "sql", "machine learning", "excel", "tableau", "aws"]
                     
-                    # Get API key from environment
+                    # Get API key securely (Streamlit secrets preferred, then env var)
                     api_key = None
                     if use_llm:
                         try:
-                            from dotenv import load_dotenv
-                            load_dotenv(override=True)
-                        except:
-                            pass
-                        api_key = os.getenv('OPENAI_API_KEY', '').strip()
-                        
-                        if not api_key:
-                            st.warning("⚠️ No API key found. Set OPENAI_API_KEY in .env file.")
+                            api_key = get_openai_api_key()
+                        except Exception:
+                            st.warning("⚠️ OpenAI API key not configured. Set it in Streamlit secrets or environment.")
+                            # disable LLM mode if no key available
+                            use_llm = False
+                            api_key = None
                     
                     extractor = SkillExtractor(extractor_skills, use_llm=use_llm, api_key=api_key)
                     
@@ -668,6 +647,10 @@ with col1:
                         text = extractor._read_docx(uploaded_file)
                         user_skills_with_conf = extractor.extract_from_text(text, return_confidence=True)
                     
+                    # Show extraction method used
+                    if use_llm and api_key:
+                        st.caption("🤖 Using AI-powered (OpenAI) extraction")
+                    
                     if user_skills_with_conf:
                         # Separate high and medium confidence skills
                         high_conf_skills = [skill for skill, conf in user_skills_with_conf if conf >= 0.7]
@@ -675,6 +658,11 @@ with col1:
                         
                         # Use high confidence skills as primary
                         user_skills = high_conf_skills
+                        # Persist to session state so other sections can access immediately
+                        try:
+                            st.session_state.user_skills = user_skills
+                        except Exception:
+                            pass
                         
                         if user_skills:
                             st.success(f"✅ Extracted {len(user_skills)} skills from your CV")
@@ -687,12 +675,39 @@ with col1:
                             
                             if medium_conf_skills:
                                 with st.expander(f"➕ {len(medium_conf_skills)} additional skills found"):
+                                    # Button to add all additional skills at once
+                                    if st.button(f"Add all {len(medium_conf_skills)} additional skills", key="add_all_additional"):
+                                        added = 0
+                                        for skill in medium_conf_skills:
+                                            if skill not in user_skills:
+                                                user_skills.append(skill)
+                                                added += 1
+                                        # persist and remember recent additions for undo
+                                        st.session_state.user_skills = user_skills
+                                        st.session_state._recently_added_skills = medium_conf_skills
+                                        st.success(f"Added {added} skills")
+                                        st.rerun()
+
                                     cols2 = st.columns(4)
                                     for idx, skill in enumerate(medium_conf_skills[:12]):
                                         with cols2[idx % 4]:
                                             if st.button(f"Add {skill.title()}", key=f"add_{skill}"):
-                                                user_skills.append(skill)
+                                                if skill not in user_skills:
+                                                    user_skills.append(skill)
+                                                    st.session_state.user_skills = user_skills
+                                                    st.session_state._recently_added_skills = [skill]
                                                 st.rerun()
+                                # Provide undo option for recent additions
+                                if st.session_state.get('_recently_added_skills'):
+                                    if st.button("Undo last added skills", key="undo_recent_cv"):
+                                        recent = st.session_state.pop('_recently_added_skills', [])
+                                        current = st.session_state.get('user_skills', [])
+                                        for s in recent:
+                                            if s in current:
+                                                current.remove(s)
+                                        st.session_state.user_skills = current
+                                        st.success(f"Removed {len(recent)} recently added skills")
+                                        st.rerun()
                         else:
                             st.info("💡 No skills found. Try the 'Write description' method.")
                     else:
@@ -729,31 +744,39 @@ with col1:
                     else:
                         extractor_skills = ["python", "sql", "machine learning", "excel", "tableau", "aws"]
                     
-                    # Get API key from environment
+                    # Get API key securely (Streamlit secrets preferred, then env var)
                     api_key = None
                     if use_llm:
-                        # Get from environment
                         try:
-                            from dotenv import load_dotenv
-                            load_dotenv(override=True)
-                        except:
-                            pass
-                        api_key = os.getenv('OPENAI_API_KEY', '').strip()
-                        
-                        if not api_key:
-                            st.warning("⚠️ No API key found. Set OPENAI_API_KEY environment variable or add it to .env file.")
+                            api_key = get_openai_api_key()
+                        except Exception:
+                            st.warning("⚠️ OpenAI API key not configured. Set it in Streamlit secrets or environment.")
+                            use_llm = False
+                            api_key = None
                     
                     extractor = SkillExtractor(extractor_skills, use_llm=use_llm, api_key=api_key)
                     user_skills_with_conf = extractor.extract_from_text(description, return_confidence=True)
                     
+                    # Show extraction method used
+                    if use_llm and api_key:
+                        st.caption("🤖 Using AI-powered (OpenAI) extraction")
+                    
                     if user_skills_with_conf:
-                        # Use all skills found (description is usually more explicit)
-                        user_skills = [skill for skill, conf in user_skills_with_conf if conf >= 0.4]
-                        
+                        # Split into high and medium confidence for interactive adds
+                        high_conf_skills = [skill for skill, conf in user_skills_with_conf if conf >= 0.7]
+                        medium_conf_skills = [skill for skill, conf in user_skills_with_conf if 0.4 <= conf < 0.7]
+
+                        # Use high confidence skills as primary
+                        user_skills = high_conf_skills
+                        try:
+                            st.session_state.user_skills = user_skills
+                        except Exception:
+                            pass
+
                         if user_skills:
-                            st.success(f"✅ Found {len(user_skills)} skills from your description")
-                            
-                            # Show extracted skills
+                            st.success(f"✅ Found {len(user_skills)} high-confidence skills from your description")
+
+                            # Show extracted skills with medium-confidence expander
                             with st.expander("📋 Extracted Skills", expanded=True):
                                 cols = st.columns(4)
                                 for idx, skill in enumerate(user_skills):
@@ -763,8 +786,43 @@ with col1:
                                             st.success(f"✓ {skill.title()}")
                                         else:
                                             st.info(f"• {skill.title()}")
+
+                                if medium_conf_skills:
+                                    # Add all medium-confidence skills
+                                    if st.button(f"Add all {len(medium_conf_skills)} additional skills", key="add_all_desc"):
+                                        added = 0
+                                        for skill in medium_conf_skills:
+                                            if skill not in user_skills:
+                                                user_skills.append(skill)
+                                                added += 1
+                                        st.session_state.user_skills = user_skills
+                                        st.session_state._recently_added_skills = medium_conf_skills
+                                        st.success(f"Added {added} skills")
+                                        st.rerun()
+
+                                    cols2 = st.columns(4)
+                                    for idx, skill in enumerate(medium_conf_skills[:12]):
+                                        with cols2[idx % 4]:
+                                            if st.button(f"Add {skill.title()}", key=f"add_desc_{skill}"):
+                                                if skill not in user_skills:
+                                                    user_skills.append(skill)
+                                                    st.session_state.user_skills = user_skills
+                                                    st.session_state._recently_added_skills = [skill]
+                                                st.rerun()
+
+                                    # Undo option for recent additions
+                                    if st.session_state.get('_recently_added_skills'):
+                                        if st.button("Undo last added skills", key="undo_recent_desc"):
+                                            recent = st.session_state.pop('_recently_added_skills', [])
+                                            current = st.session_state.get('user_skills', [])
+                                            for s in recent:
+                                                if s in current:
+                                                    current.remove(s)
+                                            st.session_state.user_skills = current
+                                            st.success(f"Removed {len(recent)} recently added skills")
+                                            st.rerun()
                         else:
-                            st.warning("⚠️ Skills found but with low confidence. Try being more specific.")
+                            st.warning("⚠️ No high-confidence skills found. Try being more specific.")
                             st.info("💡 Tip: Mention specific technologies, tools, and frameworks explicitly.")
                     else:
                         st.info("💡 No skills detected. Try mentioning specific technologies like 'Python', 'SQL', 'AWS', etc.")
@@ -776,22 +834,7 @@ with col1:
         st.session_state.user_skills = [s.lower().strip() for s in user_skills]
 
 with col2:
-    st.markdown(f"""
-    <div style="
-        background: {colors['card_gradient']};
-        border-radius: 12px;
-        padding: 20px;
-        border: 1px solid {colors['border']};
-    ">
-        <h3 style="
-            color: {colors['text_primary']};
-            margin-top: 0;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        "><span style="font-size: 1.5rem;">🎯</span> Target Job Role</h3>
-    </div>
-    """, unsafe_allow_html=True)
+    st.subheader("🎯 Target Job Role")
     
     if not jobs_df.empty and 'job_title' in jobs_df.columns:
         # Get job titles, clean and organize them
@@ -817,93 +860,44 @@ with col2:
         total_jobs = len(jobs_df)
         unique_titles_count = len(all_unique_titles_sorted)
         
-        # Optional: Show clustering-based recommendations if user has skills
+        # Optional: Show job recommendations based on user skills
         recommended_jobs_info = None
         if 'user_skills' not in st.session_state:
             st.session_state.user_skills = []
 
         if st.session_state.user_skills:
             try:
-                from src.models.cluster_analyzer import ClusterAnalyzer
-
-                # Prefer app/models, fallback to data/processed
-                model_path = locate_model_file([
-                    os.path.join('app', 'models', 'clustering_model.pkl'),
-                    os.path.join('data', 'processed', 'clustering_model.pkl'),
-                    os.path.join('data', 'processed', 'clustering_results_kmeans.pkl'),
-                ])
-                if model_path:
-                    cluster_model = ClusterAnalyzer.load(model_path)
-                    user_cluster = cluster_model.predict_user_cluster(st.session_state.user_skills)
+                # Calculate match percentage for each job based on skill overlap
+                user_set = set(s.lower().strip() for s in st.session_state.user_skills)
+                
+                recommended_jobs_list = []
+                for idx, job_row in jobs_df.iterrows():
+                    job_skills_raw = job_row.get('skill_list', [])
+                    if isinstance(job_skills_raw, str):
+                        import ast
+                        try:
+                            job_skills = ast.literal_eval(job_skills_raw)
+                        except:
+                            job_skills = [s.strip() for s in job_skills_raw.split(',') if s.strip()]
+                    else:
+                        job_skills = job_skills_raw if isinstance(job_skills_raw, list) else []
                     
-                    if user_cluster is not None and 'cluster' in jobs_df.columns:
-                        # Get jobs from user's cluster and calculate match scores
-                        cluster_jobs = jobs_df[jobs_df['cluster'] == user_cluster].copy()
-                        
-                        if not cluster_jobs.empty:
-                            # Calculate match percentage for each job
-                            user_set = set(s.lower().strip() for s in st.session_state.user_skills)
-                            
-                            recommended_jobs_list = []
-                            for idx, job_row in cluster_jobs.iterrows():
-                                job_skills_raw = job_row.get('skill_list', [])
-                                if isinstance(job_skills_raw, str):
-                                    import ast
-                                    try:
-                                        job_skills = ast.literal_eval(job_skills_raw)
-                                    except:
-                                        job_skills = [s.strip() for s in job_skills_raw.split(',') if s.strip()]
-                                else:
-                                    job_skills = job_skills_raw if isinstance(job_skills_raw, list) else []
-                                
-                                job_set = set(s.lower().strip() for s in job_skills)
-                                match_pct = (len(user_set & job_set) / len(job_set) * 100) if job_set else 0
-                                
-                                recommended_jobs_list.append({
-                                    'job': job_row,
-                                    'match': match_pct,
-                                    'title': job_row.get('job_title', 'Unknown')
-                                })
-                            
-                            # Sort by match percentage
-                            recommended_jobs_list.sort(key=lambda x: x['match'], reverse=True)
-                            recommended_jobs_info = recommended_jobs_list[:5]  # Top 5
+                    job_set = set(s.lower().strip() for s in job_skills)
+                    match_pct = (len(user_set & job_set) / len(job_set) * 100) if job_set else 0
+                    
+                    recommended_jobs_list.append({
+                        'job': job_row,
+                        'match': match_pct,
+                        'title': job_row.get('job_title', 'Unknown')
+                    })
+                
+                # Sort by match percentage
+                recommended_jobs_list.sort(key=lambda x: x['match'], reverse=True)
+                recommended_jobs_info = recommended_jobs_list[:5]  # Top 5
             except Exception as e:
                 pass  # Silently fail, use all jobs
         
         # Show recommended jobs if available
-        if recommended_jobs_info:
-            st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg, {colors['warning']} 0%, rgba(245, 158, 11, 0.1) 100%);
-                border-radius: 12px;
-                padding: 14px;
-                margin: 1rem 0;
-                border-left: 4px solid {colors['warning']};
-            ">
-                <p style="margin: 0; font-weight: 600; color: {colors['text_primary']};">
-                💡 <strong>{len(recommended_jobs_info)} Job Matches Found</strong> — Based on your skills
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-            with st.expander("View personalized job matches", expanded=False):
-                for i, rec in enumerate(recommended_jobs_info, 1):
-                    match_color = "{colors['success']}" if rec['match'] >= 75 else "{colors['warning']}" if rec['match'] >= 50 else "{colors['error']}"
-                    st.markdown(f"""
-                    <div style="
-                        padding: 12px;
-                        background: {colors['bg_secondary']};
-                        border-radius: 8px;
-                        margin: 0.5rem 0;
-                        border-left: 3px solid {match_color};
-                    ">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <strong style="color: {colors['text_primary']};">{i}. {rec['title']}</strong>
-                            <span style="background: {match_color}; color: white; padding: 4px 10px; border-radius: 16px; font-weight: 600; font-size: 0.85rem;">{rec['match']:.1f}% match</span>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-        
         selected_job_title = st.selectbox(
             f"Select a target job ({unique_titles_count:,} unique job titles from {total_jobs:,} total jobs):",
             ["-- Select a job --"] + all_unique_titles_sorted,
@@ -1014,22 +1008,11 @@ with col2:
         st.warning("Job data not loaded. Please check data files.")
 
 # ====================
-# SECTION 2: GAP ANALYSIS
+# ====================
+# SECTION 2: SKILL GAP ANALYSIS
 # ====================
 if st.session_state.user_skills and st.session_state.selected_job:
-    st.markdown(f"""
-    <hr style="margin: 2rem 0; border: none; border-top: 2px solid {colors['border']};">
-    <h2 style="
-        color: {colors['text_primary']};
-        font-size: 1.5rem;
-        margin: 1.5rem 0;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        border-bottom: 2px solid {colors['accent_primary']};
-        padding-bottom: 12px;
-    "><span style="font-size: 1.75rem;">2️⃣</span> Skill Gap Analysis</h2>
-    """, unsafe_allow_html=True)
+    st.header("2️⃣ Skill Gap Analysis")
     
     # Get job skills
     job = st.session_state.selected_job
@@ -1099,60 +1082,29 @@ if st.session_state.user_skills and st.session_state.selected_job:
     # Progress bar
     st.progress(match_percent / 100, text=f"Career Readiness: {match_percent:.1f}%")
     
-    # Detailed breakdown in tabs
-    tab1, tab2, tab3 = st.tabs(["✅ Your Matching Skills", "❌ Skills You Need", "📊 Additional Skills You Have"])
-
-    # Theme-aware card colors (light vs dark mode)
+    # Set up color scheme
     if st.session_state.get('theme', 'dark') == 'dark':
-        critical_bg = '#fee2e2'
-        critical_border = '#dc2626'
-        critical_title = '#4b0000'
-        critical_sub = '#6b0000'
-
-        med_bg = '#fef3c7'
-        med_border = '#f59e0b'
-        med_title = '#5a3c0a'
-        med_sub = '#6b4608'
-
-        low_bg = '#dcfce7'
-        low_border = '#22c55e'
-        low_title = '#0a4e1a'
-        low_sub = '#0a4e1a'
-
         match_bg = '#dcfce7'
         match_border = '#22c55e'
         match_title = '#0a4e1a'
-
+        missing_bg = '#fee2e2'
+        missing_border = '#dc2626'
+        missing_title = '#4b0000'
         extra_bg = '#e0e7ff'
         extra_title = '#1e1b4b'
     else:
-        # Light mode: use slightly darker accents for readability on light backgrounds
-        critical_bg = '#fee2e2'
-        critical_border = '#dc2626'
-        critical_title = '#7f1d1d'
-        critical_sub = '#991b1b'
-
-        med_bg = '#fef3c7'
-        med_border = '#f59e0b'
-        med_title = '#78350f'
-        med_sub = '#92400e'
-
-        low_bg = '#dcfce7'
-        low_border = '#22c55e'
-        low_title = '#15803d'
-        low_sub = '#166534'
-
         match_bg = '#dcfce7'
         match_border = '#22c55e'
         match_title = '#15803d'
-
+        missing_bg = '#fee2e2'
+        missing_border = '#dc2626'
+        missing_title = '#7f1d1d'
         extra_bg = '#e0e7ff'
         extra_title = '#312e81'
     
-    with tab1:
-        st.markdown("### Skills that match the job requirements")
+    # EXPANDER 1: Matching Skills
+    with st.expander("✅ Your Matching Skills", expanded=False):
         if matching:
-            st.markdown(f"**You have {len(matching)} matching skills:**")
             cols = st.columns(4)
             for idx, skill in enumerate(sorted(matching)):
                 with cols[idx % 4]:
@@ -1162,10 +1114,10 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     </div>
                     """, unsafe_allow_html=True)
         else:
-            st.info("No matching skills found. You'll need to learn the required skills.")
+            st.info("No matching skills found yet.")
     
-    with tab2:
-        st.markdown("### Skills required for the job that you don't have")
+    # EXPANDER 2: Missing Skills
+    with st.expander("❌ Skills You Need", expanded=True):
         if missing:
             # Use SkillMatcher for optimized gap analysis
             from src.models.skill_matcher import SkillMatcher
@@ -1340,6 +1292,22 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 med_priority = missing_sorted[third:third*2] if len(missing_sorted) > third else []
                 low_priority = missing_sorted[third*2:] if len(missing_sorted) > third*2 else []
                 
+                # Define priority colors
+                critical_bg = '#fee2e2'
+                critical_border = '#dc2626'
+                critical_title = '#7f1d1d' if st.session_state.get('theme', 'dark') != 'dark' else '#4b0000'
+                critical_sub = '#991b1b' if st.session_state.get('theme', 'dark') != 'dark' else '#6b0000'
+                
+                med_bg = '#fef3c7'
+                med_border = '#f59e0b'
+                med_title = '#78350f' if st.session_state.get('theme', 'dark') != 'dark' else '#5a3c0a'
+                med_sub = '#92400e' if st.session_state.get('theme', 'dark') != 'dark' else '#6b4608'
+                
+                low_bg = '#dcfce7'
+                low_border = '#22c55e'
+                low_title = '#15803d' if st.session_state.get('theme', 'dark') != 'dark' else '#0a4e1a'
+                low_sub = '#166534' if st.session_state.get('theme', 'dark') != 'dark' else '#0a4e1a'
+                
                 if high_priority:
                     st.markdown("#### 🔴 Critical - Must Learn First")
                     cols = st.columns(4)
@@ -1434,41 +1402,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
                                     st.write("**Parsed consequents (sample):**")
                                     for c in details.get('consequents_list', [])[:10]:
                                         st.write(f"- {c.title()}")
-                
-                # Show suggested learning path
-                with st.expander("📚 View Suggested Learning Path", expanded=False):
-                    st.markdown("**Learn in this order for best results:**")
-                    phases = matcher.get_learning_path(missing_sorted, max_skills_per_phase=3)
-                    for phase_idx, phase in enumerate(phases[:5], 1):  # Show first 5 phases
-                        phase_str = ", ".join(s.title() for s in phase)
-                        st.write(f"**Phase {phase_idx}:** {phase_str}")
-                
-                # Broader recommendations using combined association rules
-                try:
-                    if rules_combined_df is not None and not rules_combined_df.empty:
-                        rec_scores = {}
-                        user_and_missing = set(user_set) | set(missing_sorted)
-                        for _, row in rules_combined_df.iterrows():
-                            try:
-                                ants = set(eval(str(row.get('antecedents', 'set()'))))
-                                cons = set(eval(str(row.get('consequents', 'set()'))))
-                                if ants & user_and_missing:
-                                    score = float(row.get('confidence', 0.0)) if 'confidence' in row else 0.0
-                                    for c in cons:
-                                        if c in user_and_missing or c in job_set:
-                                            continue
-                                        rec_scores[c] = rec_scores.get(c, 0.0) + score
-                            except Exception:
-                                pass
 
-                        # show top 6 broader recommendations
-                        if rec_scores:
-                            sorted_recs = sorted(rec_scores.items(), key=lambda x: x[1], reverse=True)
-                            st.markdown("#### 💡 Broader Skill Recommendations (from combined rules)")
-                            for r, sc in sorted_recs[:6]:
-                                st.write(f"- {r.title()} (score: {sc:.2f})")
-                except Exception:
-                    pass
             except Exception as e:
                 # Fallback: simple list display
                 st.markdown(f"**Missing Skills ({len(missing)}):**")
@@ -1476,23 +1410,22 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 for idx, skill in enumerate(sorted(missing)):
                     with cols[idx % 4]:
                         st.markdown(f"""
-                        <div style="background: #fee2e2; border-radius: 8px; padding: 10px; border-left: 3px solid #dc2626;">
-                            <div style="font-weight: 600; color: #7f1d1d;">✗ {skill.title()}</div>
+                        <div style="background: {missing_bg}; border-radius: 8px; padding: 10px; border-left: 3px solid {missing_border};">
+                            <div style="font-weight: 600; color: {missing_title};">✗ {skill.title()}</div>
                         </div>
                         """, unsafe_allow_html=True)
         else:
-            st.success("🎉 Excellent! You have all the required skills for this job!")
+            st.success("✅ You have all the required skills!")
     
-    with tab3:
-        st.markdown("### Additional skills you have (not required for this job)")
+    # EXPANDER 3: Extra Skills
+    with st.expander("📊 Additional Skills You Have", expanded=False):
         if extra:
-            st.markdown(f"**You have {len(extra)} extra skills:**")
             cols = st.columns(4)
             for idx, skill in enumerate(sorted(extra)):
                 with cols[idx % 4]:
                     st.markdown(f"""
-                    <div style="background: #e0e7ff; border-radius: 8px; padding: 10px; border-left: 3px solid #6366f1;">
-                        <div style="font-weight: 600; color: #1e1b4b !important;">+ {skill.title()}</div>
+                    <div style="background: {extra_bg}; border-radius: 8px; padding: 10px; border-left: 3px solid #6366f1;">
+                        <div style="font-weight: 600; color: {extra_title};">+ {skill.title()}</div>
                     </div>
                     """, unsafe_allow_html=True)
         else:
@@ -1587,249 +1520,142 @@ if st.session_state.user_skills and st.session_state.selected_job:
             st.warning(f"⚠️ Error loading association rules: {str(e)}")
     
     # ====================
-    # SECTION 3: RECOMMENDATIONS
+    # SECTION 3: PERSONALIZED LEARNING PATH
     # ====================
-    st.markdown(f"""
-    <hr style="margin: 2rem 0; border: none; border-top: 2px solid {colors['border']};">
-    <h2 style="
-        color: {colors['text_primary']};
-        font-size: 1.5rem;
-        margin: 1.5rem 0;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        border-bottom: 2px solid {colors['accent_primary']};
-        padding-bottom: 12px;
-    "><span style="font-size: 1.75rem;">3️⃣</span> Personalized Learning Path</h2>
-    """, unsafe_allow_html=True)
+    st.header("3️⃣ Personalized Learning Path")
+    st.caption("Model-powered roadmap based on your gaps and association-rule patterns")
     
-    # Model Selector
-    if recommender_available:
-        model_choice = st.radio(
-            "Select Recommendation Type:",
-            [
-                "A1: 🎯 Specific Skills (What to learn)",
-                "A2: 🗺️  Career Coaching (How to advance)",
-                "A3: 📊 Comprehensive Analysis (Full profile)"
-            ],
-            horizontal=True,
-            help="A1: Quick skill recommendations | A2: Career guidance | A3: Deep analysis"
-        )
-        # Import recommender models
-        try:
-            from src.models.recommender import ModelA1Recommender, ModelA2Recommender, ModelA3Recommender
-            recommender_imported = True
-        except ImportError:
-            recommender_imported = False
-            st.warning("⚠️ Recommender models not available. Using basic recommendations.")
-    else:
-        st.info("Recommender models not available — showing basic learning path and fallbacks.")
-        model_choice = "Fallback"
-        recommender_imported = False
-    
+    # ===== NEW: Model-Driven Learning Path (powered by Association Rules) =====
     if missing:
-        # Model-specific recommendation logic
-        if "A1" in model_choice and recommender_imported:
-            # ===== MODEL A1: Specific Skills =====
-            with st.spinner("🎯 Generating skill recommendations..."):
+        with st.spinner("⏳ Generating personalized learning path..."):
+            try:
+                from src.models.association_miner import AssociationEnsemble, get_association_rules_from_csv
+                from src.models.learning_path_generator import build_personalized_learning_path
+                
+                # Try to load ensemble from CSV files
+                ensemble = None
+                ensemble_loaded = False
                 try:
-                    a1_recommender = ModelA1Recommender()
+                    ensemble = get_association_rules_from_csv('data/processed')
+                    ensemble_loaded = ensemble is not None and len(ensemble.models) > 0
+                except Exception:
+                    ensemble = None
+                    ensemble_loaded = False
+                
+                # Always call build_personalized_learning_path (it returns a valid dict, never None)
+                path_result = build_personalized_learning_path(
+                    user_skills=user_skills,
+                    job_skills=job_skills,
+                    ensemble=ensemble if ensemble_loaded else None,
+                    max_phases=4
+                )
+                
+                # Defensive checks: ensure path_result is a valid dict with expected keys
+                if not path_result or not isinstance(path_result, dict):
+                    st.error("Learning path generation failed. Please try again.")
+                    st.info("Showing missing skills by requirement frequency instead:")
+                    sorted_missing = sorted(missing)
+                    for idx, skill in enumerate(sorted_missing[:10], 1):
+                        st.write(f"{idx}. **{skill.title()}**")
+                else:
+                    # Extract phases safely
+                    phases = path_result.get('phases', [])
+                    total_weeks = path_result.get('total_weeks', 0)
+                    missing_count = path_result.get('missing_count', len(missing))
+                    message = path_result.get('message')
                     
-                    # Get all skills from jobs for popularity scoring
-                    all_job_skills = []
-                    for skills in jobs_df['skill_list']:
-                        if isinstance(skills, list):
-                            all_job_skills.extend(skills)
-                        elif isinstance(skills, str):
-                            import ast
-                            try:
-                                skills_list = ast.literal_eval(skills)
-                                if isinstance(skills_list, list):
-                                    all_job_skills.extend(skills_list)
-                            except:
-                                pass
-                    
-                    a1_recs = a1_recommender.get_recommendations(
-                        user_skills=user_skills,
-                        missing_skills=list(missing) if isinstance(missing, set) else missing,
-                        all_job_skills=all_job_skills,
-                        top_n=10
-                    )
-                    
-                    if not a1_recs.empty:
-                        st.markdown("""
+                    # Check if we have valid phases
+                    if phases and isinstance(phases, list) and len(phases) > 0:
+                        # Display header with model info
+                        st.markdown(f"""
                         <div style="
-                            background: linear-gradient(135deg, #3B82F6 0%, rgba(59, 130, 246, 0.1) 100%);
-                            border-radius: 12px;
-                            padding: 16px;
-                            border-left: 4px solid #3B82F6;
-                            margin: 1.5rem 0;
+                            background: linear-gradient(135deg, #10b981 0%, rgba(16, 185, 129, 0.1) 100%);
+                            border-radius: 8px;
+                            padding: 12px 16px;
+                            border-left: 3px solid #10b981;
+                            margin: 1rem 0;
                         ">
-                            <p style="margin: 0; color: {colors['text_primary']}; font-weight: 600;">
-                            🎯 Top Skills To Learn (Ranked by Importance)
+                            <p style="margin: 0; color: {colors['text_primary']}; font-weight: 600; font-size: 0.95rem;">
+                            ✅ Model-Powered Learning Path
                             </p>
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        for idx, (_, rec) in enumerate(a1_recs.iterrows(), 1):
-                            with st.expander(f"{idx}. **{rec['skill']}** - Priority {rec['priority']}/10"):
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("Difficulty", rec['difficulty'])
-                                with col2:
-                                    st.metric("Time", f"{rec['estimated_weeks']} weeks")
-                                with col3:
-                                    st.metric("Success Rate", f"{rec['success_rate']:.0f}%")
-                                
-                                st.write(f"**Why learn this?** {rec['reason']}")
-                                st.write(f"**📚 Recommended Courses:** {rec['courses']}")
-                    else:
-                        st.info("💡 No specific skill recommendations available at this time.")
-                
-                except Exception as e:
-                    st.error(f"❌ Error generating A1 recommendations: {str(e)}")
-        
-        elif "A2" in model_choice and recommender_imported:
-            # ===== MODEL A2: Career Coaching =====
-            with st.spinner("🗺️  Generating career roadmap..."):
-                try:
-                    a2_recommender = ModelA2Recommender(jobs_df, skills_df)
-                    
-                    # Get user context
-                    years_exp = st.number_input("Years of experience:", 0, 50, 3, key="a2_years")
-                    target_for_a2 = st.selectbox(
-                        "Target career role:",
-                        unique_job_titles[:15] if unique_job_titles else ["Data Scientist", "Senior Engineer", "ML Engineer"],
-                        key="a2_target"
-                    )
-                    
-                    if st.button("Generate Career Roadmap", key="gen_roadmap"):
-                        # Assess career stage
-                        stage_info = a2_recommender.assess_career_stage(years_exp, user_skills)
+                        # Compact metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Missing Skills", missing_count, label_visibility="collapsed")
+                        with col2:
+                            st.metric("Phases", len(phases), label_visibility="collapsed")
+                        with col3:
+                            st.metric("Est. Duration", f"{total_weeks}w", label_visibility="collapsed")
                         
-                        # Analyze market
-                        market = a2_recommender.analyze_career_market(target_for_a2)
-                        
-                        # Generate progression
-                        progression = a2_recommender.generate_progression_path(
-                            "Current Role",
-                            user_skills,
-                            target_for_a2,
-                            years_horizon=3
-                        )
-                        
-                        # Generate coaching
-                        coaching = a2_recommender.provide_coaching(
-                            stage_info['stage'],
-                            years_exp,
-                            target_for_a2,
-                            progression,
-                            market
-                        )
-                        
-                        st.markdown(coaching)
-                
-                except Exception as e:
-                    st.error(f"❌ Error generating A2 roadmap: {str(e)}")
-        
-        elif "A3" in model_choice and recommender_imported:
-            # ===== MODEL A3: Comprehensive Analysis =====
-            with st.spinner("📊 Generating comprehensive analysis..."):
-                try:
-                    from src.models.cluster_analyzer import ClusterAnalyzer
-                    
-                    # Try to load cluster analyzer
-                    cluster_model = None
-                    try:
-                        if os.path.exists('app/models/clustering_model.pkl'):
-                            cluster_model = ClusterAnalyzer.load('app/models/clustering_model.pkl')
-                    except:
-                        pass
-                    
-                    a3_recommender = ModelA3Recommender(jobs_df, skills_df, cluster_model)
-                    
-                    # Get user context for A3
-                    years_exp_a3 = st.number_input("Years of experience:", 0, 50, 3, key="a3_years")
-                    target_for_a3 = st.selectbox(
-                        "Target career role:",
-                        unique_job_titles[:15] if unique_job_titles else ["Data Scientist", "Senior Engineer", "ML Engineer"],
-                        key="a3_target"
-                    )
-                    
-                    if st.button("Generate Full Analysis", key="gen_a3"):
-                        # Generate comprehensive report
-                        report = a3_recommender.comprehensive_report(
-                            user_profile={'skills': user_skills},
-                            years_experience=years_exp_a3,
-                            target_role=target_for_a3
-                        )
-                        
-                        # Display tabs
-                        tab_summary, tab_skills, tab_paths, tab_clusters = st.tabs(
-                            ["📊 Summary", "🎯 A1 Skills", "🗺️  A2 Paths", "📈 A3 Clusters"]
-                        )
-                        
-                        with tab_summary:
-                            st.markdown(report['executive_summary'])
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Career Stage", report['career_stage']['stage'])
-                            with col2:
-                                st.metric("Opportunity Score", f"{report['opportunity_score']:.1f}/10")
-                            with col3:
-                                st.metric("Success Probability", f"{report['success_probability']:.0%}")
-                        
-                        with tab_skills:
-                            st.subheader("🎯 Immediate Skill Recommendations (A1)")
-                            if report['immediate_recommendations']:
-                                for idx, rec in enumerate(report['immediate_recommendations'][:5], 1):
-                                    st.write(f"**{idx}. {rec.get('skill', 'N/A')}** (Priority: {rec.get('priority', 'N/A')}/10)")
-                            else:
-                                st.info("No A1 recommendations available.")
-                        
-                        with tab_paths:
-                            st.subheader("🗺️  Career Progression Paths (A2)")
-                            for path in report['alternative_paths'][:3]:
-                                with st.expander(f"{path['target_role']} ({path['success_probability']:.0%} success)"):
-                                    st.write(f"**Timeline:** {path['estimated_timeline_months']} months")
-                                    st.write(f"**New Skills Needed:** {path['total_new_skills']}")
-                                    st.write(f"**Difficulty:** {path['difficulty_level']}")
-                                    st.write(f"**Estimated Salary:** ${path['estimated_salary']:,.0f}")
-                        
-                        with tab_clusters:
-                            st.subheader("📈 Skill Cluster Analysis (A3)")
-                            clusters = report['skill_clusters']
-                            st.write(f"**Primary Clusters:** {', '.join(clusters.get('primary_clusters', []))}")
-                            st.write(f"**Secondary Clusters:** {', '.join(clusters.get('secondary_clusters', []))}")
+                        # Display each phase in compact expanders
+                        for phase in phases:
+                            if not isinstance(phase, dict):
+                                continue
                             
-                            st.write("**Peer Group Analysis:**")
-                            peer = report['peer_analysis']
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Your Percentile", f"{peer['percentile']:.0f}th")
-                            with col2:
-                                st.metric("Success Rate", f"{peer['success_rate']:.0%}")
-                            with col3:
-                                st.metric("Avg Salary", f"${peer['average_salary']:,.0f}")
-                
-                except Exception as e:
-                    st.error(f"❌ Error generating A3 analysis: {str(e)}")
-        
-        else:
-            # ===== FALLBACK: Original Learning Path =====
-            st.markdown("""
-            <div style="
-                background: linear-gradient(135deg, {colors['warning']} 0%, rgba(255, 193, 7, 0.1) 100%);
-                border-radius: 12px;
-                padding: 16px;
-                border-left: 4px solid {colors['warning']};
-                margin: 1.5rem 0;
-            ">
-                <p style="margin: 0; color: {colors['text_primary']}; font-weight: 600;">
-                ⚡ Smart Learning Order: Skills ranked by priority and dependencies
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+                            phase_num = phase.get('phase_number', 0)
+                            phase_title = phase.get('title', 'Phase')
+                            phase_difficulty = phase.get('difficulty', 'Medium')
+                            phase_weeks = phase.get('duration_weeks', 0)
+                            phase_skills = phase.get('skills', [])
+                            
+                            exp_label = f"Phase {phase_num}: {phase_title} ({phase_difficulty}) — {phase_weeks}w"
+                            with st.expander(exp_label, expanded=(phase_num == 1)):
+                                # Compact skills table
+                                if phase_skills and isinstance(phase_skills, list):
+                                    skills_data = []
+                                    for s in phase_skills:
+                                        if isinstance(s, dict):
+                                            skills_data.append({
+                                                'Skill': s.get('name', 'Unknown').title(),
+                                                'Importance': f"{s.get('final_score', 0):.0%}",
+                                                'Sources': ', '.join(s.get('sources', [])) if s.get('sources') else "Gap"
+                                            })
+                                    
+                                    if skills_data:
+                                        st.dataframe(
+                                            pd.DataFrame(skills_data),
+                                            use_container_width=True,
+                                            hide_index=True
+                                        )
+                                
+                                # Why these skills
+                                for skill in phase_skills:
+                                    if isinstance(skill, dict):
+                                        skill_name = skill.get('name', 'Skill').title()
+                                        explanation = skill.get('explanation', 'No explanation available.')
+                                        with st.expander(f"Why learn {skill_name}?", expanded=False):
+                                            st.caption(explanation)
+                    
+                    elif message:
+                        # Show message if provided (e.g., "You already have all required skills!")
+                        st.success(message) if "already" in message.lower() else st.info(message)
+                        
+                        # Show missing skills as fallback
+                        st.write("**Missing skills by requirement frequency:**")
+                        sorted_missing = sorted(missing)
+                        for idx, skill in enumerate(sorted_missing[:10], 1):
+                            st.write(f"{idx}. **{skill.title()}**")
+                    
+                    else:
+                        # No phases, no explicit message - show fallback
+                        st.info("No model-powered learning path available. Showing missing skills by requirement frequency:")
+                        sorted_missing = sorted(missing)
+                        for idx, skill in enumerate(sorted_missing[:10], 1):
+                            st.write(f"{idx}. **{skill.title()}**")
+            
+            except Exception as e:
+                error_msg = str(e)
+                st.error(f"Could not generate learning path: {error_msg[:100]}")
+                st.info("Showing missing skills by requirement frequency instead:")
+                sorted_missing = sorted(missing)
+                for idx, skill in enumerate(sorted_missing[:10], 1):
+                    st.write(f"{idx}. **{skill.title()}**")
+    
+    else:
+        st.info("Add skills and select a job to see personalized learning path recommendations.")
         
         # Use AssociationEnsemble to determine priority and unlock potential across pickles and CSV fallbacks
         try:
@@ -2036,168 +1862,99 @@ if st.session_state.user_skills and st.session_state.selected_job:
                                 </div>
                                 """, unsafe_allow_html=True)
 
-        # Similar jobs from Clustering (all from same cluster)
-        st.markdown("""
-        <div style="margin-top: 2rem;">
-            <h3 style="
-                color: {colors['text_primary']};
-                font-size: 1.25rem;
-                margin: 1rem 0;
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-            "><span style="font-size: 1.5rem;">💼</span> Similar Opportunities</h3>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        try:
-            from src.models.cluster_analyzer import ClusterAnalyzer
-            
-            model_path = 'app/models/clustering_model.pkl'
-            if os.path.exists(model_path):
-                cluster_model = ClusterAnalyzer.load(model_path)
-                
-                # Find user's cluster
-                user_cluster = cluster_model.predict_user_cluster(st.session_state.user_skills)
-                
-                if user_cluster is not None:
-                    # Get jobs from same cluster (excluding current job)
-                    if 'cluster' in jobs_df.columns:
-                        cluster_jobs = jobs_df[jobs_df['cluster'] == user_cluster].copy()
-                        
-                        # Exclude current job
-                        current_job_title = job.get('job_title', '')
-                        if current_job_title:
-                            cluster_jobs = cluster_jobs[cluster_jobs['job_title'] != current_job_title]
-                        
-                        if not cluster_jobs.empty:
-                            # Calculate match for each job and sort
-                            similar_jobs_with_match = []
-                            for _, job_row in cluster_jobs.iterrows():
-                                similar_job_skills = job_row.get('skill_list', [])
-                                if isinstance(similar_job_skills, str):
-                                    import ast
-                                    try:
-                                        similar_job_skills = ast.literal_eval(similar_job_skills)
-                                    except:
-                                        similar_job_skills = [s.strip() for s in similar_job_skills.split(',') if s.strip()]
-                                else:
-                                    similar_job_skills = similar_job_skills if isinstance(similar_job_skills, list) else []
-                                
-                                similar_job_set = set(s.lower().strip() for s in similar_job_skills)
-                                similar_match = len(user_set & similar_job_set) / len(similar_job_set) * 100 if similar_job_set else 0
-                                
-                                similar_jobs_with_match.append({
-                                    'job': job_row,
-                                    'match': similar_match
-                                })
-                            
-                            # Sort by match and take top 3
-                            similar_jobs_with_match.sort(key=lambda x: x['match'], reverse=True)
-                            
-                            for idx, item in enumerate(similar_jobs_with_match[:3], 1):
-                                job_row = item['job']
-                                match_pct = item['match']
-                                
-                                company = job_row.get('company', 'N/A')
-                                location = job_row.get('location', 'N/A')
-                                job_title = job_row.get('job_title', 'Unknown Job')
-                                
-                                st.markdown(f"""
-                                **{idx}. {job_title} - {company}** ({match_pct:.0f}% match)
-                                
-                                📍 {location}
-                                """)
-                        else:
-                            st.info("No similar jobs found in your cluster.")
-                    else:
-                        # Fallback: cluster column missing — compute simple similarity across all jobs
-                        try:
-                            user_set_lower = set(s.lower().strip() for s in st.session_state.user_skills)
-                            # Compute similarity (overlap) across all jobs
-                            similarity_list = []
-                            for _, jrow in jobs_df.iterrows():
-                                jskills = jrow.get('skill_list', [])
-                                if isinstance(jskills, str):
-                                    import ast as _ast
-                                    try:
-                                        jskills = _ast.literal_eval(jskills)
-                                    except:
-                                        jskills = [s.strip() for s in jskills.split(',') if s.strip()]
-                                if not isinstance(jskills, list):
-                                    continue
-                                jset = set(s.lower().strip() for s in jskills if s and str(s).strip())
-                                if not jset:
-                                    continue
-                                match_pct = len(user_set_lower & jset) / len(jset) * 100
-                                similarity_list.append((match_pct, jrow))
+# ====================
+# SECTION 4: SIMILAR OPPORTUNITIES
+# ====================
+st.header("4️⃣ Similar Opportunities")
 
-                            # Sort and display top 3 similar jobs (excluding current job)
-                            similarity_list.sort(key=lambda x: x[0], reverse=True)
-                            top_similar = []
-                            current_job_title = job.get('job_title', '')
-                            for match_pct, jrow in similarity_list:
-                                if current_job_title and jrow.get('job_title', '') == current_job_title:
-                                    continue
-                                top_similar.append((match_pct, jrow))
-                                if len(top_similar) >= 3:
-                                    break
+# Path to the minimal mapping file created by the offline script. Prefer the minimal gzip file for the app.
+CLUSTER_MAPPING_PATH = "data/processed/job_clusters_minimal.pkl.gz"
 
-                            if top_similar:
-                                for idx, (match_pct, jrow) in enumerate(top_similar, 1):
-                                    st.markdown(f"**{idx}. {jrow.get('job_title','Unknown Job')} - {jrow.get('company','N/A')}** ({match_pct:.0f}% match)\n\n📍 {jrow.get('location','N/A')}")
-                            else:
-                                st.info("No similar jobs found (fallback similarity check returned no matches).")
-                        except Exception as e:
-                            st.info("Job clustering not available in loaded data.")
-                else:
-                    if st.session_state.user_skills:
-                        st.info("💡 Job cluster prediction not available for your skill combination. Upgrade your skills to unlock job recommendations.")
-                    else:
-                        st.info("💡 Enter your skills above to get personalized job recommendations.")
-            else:
-                st.info("💡 Clustering model not found. Run `python scripts/download_models.py`")
-        except Exception as e:
-            st.info(f"Job recommendations unavailable: {str(e)}")
-    
-    else:
-        st.markdown("""
-        <div style="
-            background: linear-gradient(135deg, {colors['success']} 0%, rgba(16, 185, 129, 0.1) 100%);
-            border-radius: 12px;
-            padding: 2.5rem;
-            text-align: center;
-            border: 1px solid {colors['success']};
-        ">
-            <h2 style="color: {colors['success']}; margin: 0 0 1rem 0; font-size: 2rem;">🎉 Excellent Match!</h2>
-            <p style="color: {colors['text_primary']}; font-size: 1.1rem; margin: 0; font-weight: 500;">You have all the required skills for this position.</p>
-            <p style="color: {colors['text_secondary']}; font-size: 0.95rem; margin: 0.75rem 0 0 0;">Time to apply and land your next opportunity!</p>
-        </div>
-        """, unsafe_allow_html=True)
+@st.cache_resource
+def load_cluster_analyzer(path: str = CLUSTER_MAPPING_PATH):
+    try:
+        return ClusterAnalyzer(path)
+    except Exception as e:
+        # If loading fails, return None and the UI will show an informational message
+        st.session_state._cluster_load_error = str(e)
+        return None
 
+analyzer = load_cluster_analyzer()
+
+selected_similar_displayed = False
+selected_job = st.session_state.get('selected_job')
+if analyzer is None:
+    st.caption("Similar opportunities are available but the cluster mapping could not be loaded.")
+    err = st.session_state.get('_cluster_load_error')
+    if err:
+        st.text(f"Cluster load error: {err}")
+    st.info("You can still view job details above. To enable similar job recommendations, provide a compact `job_clusters_minimal.pkl.gz` mapping in `data/processed`.")
 else:
-    st.markdown("""
-    <div style="
-        background: linear-gradient(135deg, {colors['bg_tertiary']} 0%, {colors['bg_secondary']} 100%);
-        border-radius: 12px;
-        padding: 3rem;
-        text-align: center;
-        border: 1px solid {colors['border']};
-        margin: 2rem 0;
-    ">
-        <h3 style="
-            color: {colors['accent_primary']};
-            font-size: 1.3rem;
-            margin: 0 0 0.75rem 0;
-        ">👈 Let's Get Started</h3>
-        <p style="
-            color: {colors['text_primary']};
-            font-size: 1rem;
-            margin: 0;
-            line-height: 1.6;
-        ">Select your technical skills above and choose a target job role to receive a personalized analysis and learning recommendations.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    if selected_job:
+        # Determine a job id/key for lookup - common columns are 'job_key' or 'job_id'
+        job_key = None
+        for candidate in ('job_key', 'job_id', 'jobKey', 'id'):
+            if isinstance(selected_job, dict) and candidate in selected_job:
+                job_key = selected_job.get(candidate)
+                break
+
+        if job_key is None:
+            st.info("Selected job does not contain an identifier ('job_key' or 'job_id') required for similar-job lookup.")
+        else:
+            similar = analyzer.get_similar_jobs(job_key, top_n=8)
+            if similar.empty:
+                st.info("No similar jobs found in the cluster mapping.")
+            else:
+                # Try to enrich with the in-memory `jobs_df` sample if available
+                display_df = similar.copy()
+                try:
+                    if 'job_key' in globals().get('jobs_df', pd.DataFrame()).columns:
+                        meta = jobs_df[['job_key', 'job_title', 'company', 'location']].copy()
+                        meta['job_key'] = meta['job_key'].astype(str)
+                        display_df = display_df.merge(meta, left_on='job_id', right_on='job_key', how='left')
+                        display_df = display_df[['job_id', 'job_title', 'company', 'location', 'cluster_id']]
+                    elif 'job_id' in globals().get('jobs_df', pd.DataFrame()).columns:
+                        meta = jobs_df[['job_id', 'job_title', 'company', 'location']].copy()
+                        meta['job_id'] = meta['job_id'].astype(str)
+                        display_df = display_df.merge(meta, on='job_id', how='left')
+                    else:
+                        # No metadata available in the sampled jobs_df; keep minimal
+                        pass
+                except Exception:
+                    # If enriching fails, fall back to minimal display
+                    pass
+
+                st.subheader("Jobs in the same cluster")
+                # Render as styled cards in a responsive grid rather than a raw dataframe
+                try:
+                    disp = display_df.reset_index(drop=True)
+                    num = len(disp)
+                    if num == 0:
+                        st.info("No similar jobs found in the mapping.")
+                    else:
+                        cols_count = min(4, num)
+                        cols = st.columns(cols_count)
+                        for i, row in disp.iterrows():
+                            col = cols[i % cols_count]
+                            title = row.get('job_title') if pd.notna(row.get('job_title')) else 'Untitled'
+                            company = row.get('company') if pd.notna(row.get('company')) else 'N/A'
+                            location = row.get('location') if pd.notna(row.get('location')) else 'N/A'
+                            cluster_badge = row.get('cluster_id')
+                            col.markdown(f"""
+                                <div style="background: {colors['bg_secondary']}; border-radius: 10px; padding: 12px; margin: 6px; border-left: 4px solid {colors['accent_primary']};">
+                                    <div style="display:flex; justify-content: space-between; align-items:center;">
+                                        <div style="font-weight: 700; color: {colors['text_primary']};">{title}</div>
+                                        <div style="background: {colors['accent_secondary']}; color: white; padding: 4px 8px; border-radius: 12px; font-size:0.85rem;">Cluster {cluster_badge}</div>
+                                    </div>
+                                    <div style="color: {colors['text_secondary']}; font-size:0.92rem; margin-top:6px;">{company} • {location}</div>
+                                </div>
+                            """, unsafe_allow_html=True)
+                except Exception:
+                    # Fallback to simple table if anything goes wrong
+                    st.dataframe(display_df.reset_index(drop=True))
+                selected_similar_displayed = True
+    else:
+        st.info("Select a target job above to see similar opportunities.")
 
 # Footer
 st.divider()

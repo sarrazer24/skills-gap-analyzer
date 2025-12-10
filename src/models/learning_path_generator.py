@@ -401,3 +401,293 @@ class LearningPathGenerator:
         result.extend([s for s in skills if s not in result])
         
         return result
+
+
+# ============================================================================
+# MODEL-DRIVEN LEARNING PATH GENERATION (NEW)
+# ============================================================================
+
+def build_personalized_learning_path(
+    user_skills: List[str],
+    job_skills: List[str],
+    ensemble: Optional[object] = None,
+    max_phases: int = 5,
+) -> Dict:
+    """
+    Build a personalized learning path using gap analysis + association rule models.
+    
+    This function combines:
+    1. Gap analysis to identify missing skills and base importance
+    2. Association rule models (A1/A2/A3) to score skills based on what other people
+       with similar skills commonly learn
+    3. Phasing to organize skills into digestible learning phases
+    
+    Args:
+        user_skills: List of skills the user currently has
+        job_skills: List of skills required for the target job
+        ensemble: Optional AssociationEnsemble instance (if None, uses gap-only approach)
+        max_phases: Maximum number of learning phases to create (2-5 recommended)
+    
+    Returns:
+        Dict with guaranteed structure (NEVER returns None):
+        {
+            "phases": [               # List of learning phases (may be empty)
+                {
+                    "phase_number": 1,
+                    "title": "Foundation Skills",
+                    "skills": [
+                        {
+                            "name": "skill_name",
+                            "final_score": 0.85,        # Combined score (gap + model)
+                            "base_importance": 0.80,    # Gap importance
+                            "model_score": 0.90,        # Model confidence
+                            "sources": ["A1", "A3"],    # Which models suggested it
+                            "explanation": "..."        # Why this skill is recommended
+                        },
+                        ...
+                    ],
+                    "duration_weeks": 4,
+                    "difficulty": "Easy"
+                },
+                ...
+            ],
+            "total_weeks": 20,                          # Sum of all phase durations
+            "model_available": True,                    # Was ensemble provided?
+            "missing_count": 5,                         # Number of missing skills
+            "message": None                             # Optional message if phases empty
+        }
+    
+    IMPORTANT: This function ALWAYS returns a valid dict. It never returns None.
+    If skill scoring fails, it returns empty phases with a message.
+    If there are no missing skills, it returns empty phases with a success message.
+    """
+    from src.models.skill_matcher import SkillMatcher
+    
+    # Step 1: Run gap analysis
+    matcher = SkillMatcher()
+    gap_result = matcher.analyze_gap(user_skills, job_skills)
+    
+    missing_skills = gap_result['missing']
+    if not missing_skills:
+        return {
+            "phases": [],
+            "total_weeks": 0,
+            "model_available": ensemble is not None,
+            "missing_count": 0,
+            "message": "You already have all required skills! 🎉"
+        }
+    
+    # Step 2: Score skills using models (if available) + gap analysis
+    skill_scores = _score_missing_skills(
+        missing_skills,
+        user_skills,
+        gap_result['skill_importance'],
+        ensemble
+    )
+    
+    # Ensure skill_scores is a valid dict
+    if not skill_scores or not isinstance(skill_scores, dict):
+        return {
+            "phases": [],
+            "total_weeks": 0,
+            "model_available": ensemble is not None,
+            "missing_count": len(missing_skills),
+            "message": "Could not score missing skills. Showing skills by job requirement instead."
+        }
+    
+    # Step 3: Sort by final score
+    sorted_skills = sorted(
+        skill_scores.items(),
+        key=lambda x: x[1]['final_score'],
+        reverse=True
+    )
+    
+    # Step 4: Group into phases
+    phases = _create_learning_phases(sorted_skills, max_phases)
+    
+    # Calculate totals
+    total_weeks = sum(p['duration_weeks'] for p in phases)
+    
+    return {
+        "phases": phases,
+        "total_weeks": total_weeks,
+        "model_available": ensemble is not None,
+        "missing_count": len(missing_skills),
+        "message": None
+    }
+
+
+def _score_missing_skills(
+    missing_skills: List[str],
+    user_skills: List[str],
+    gap_importance: Dict[str, float],
+    ensemble: Optional[object] = None
+) -> Dict[str, Dict]:
+    """
+    Score each missing skill using gap analysis + association rule models.
+    
+    For each skill, computes:
+    - base_importance: How critical is it for the job? (0-1, from gap analysis)
+    - model_score: How commonly do people with user's skills learn this? (0-1, from models)
+    - final_score: Weighted combination (default 0.6 * gap + 0.4 * model)
+    - sources: Which models recommended it (A1, A2, A3)
+    - explanation: Human-readable reason for recommendation
+    
+    Returns:
+        Dict mapping skill name -> {base_importance, model_score, final_score, sources, details, explanation}
+        Always returns a dict (never None), even if empty.
+    """
+    skill_scores = {}
+    
+    if not missing_skills:
+        return skill_scores
+    
+    for skill in missing_skills:
+        try:
+            # Get base importance from gap analysis
+            base_importance = gap_importance.get(skill, 0.5)
+            
+            # Get model score if ensemble available
+            model_score = 0.0
+            sources = []
+            details = {}
+            
+            if ensemble is not None:
+                try:
+                    # Query ensemble for this skill
+                    model_result = ensemble.score_skill_for_user(
+                        skill=skill,
+                        user_skills=user_skills,
+                        job_skills=None  # Not using job context for now
+                    )
+                    
+                    # Safely extract result fields
+                    if model_result and isinstance(model_result, dict):
+                        model_score = model_result.get('model_score', 0.0) or 0.0
+                        sources = model_result.get('sources', []) or []
+                        details = model_result.get('details', {}) or {}
+                    
+                except Exception:
+                    # If model fails, fall back to gap-only
+                    model_score = 0.0
+                    sources = []
+                    details = {}
+            
+            # Combine scores: 60% gap importance + 40% model signal
+            final_score = 0.6 * base_importance + 0.4 * model_score if model_score > 0 else base_importance
+            
+            # Build explanation
+            if sources:
+                sources_str = ", ".join(sources)
+                explanation = (
+                    f"Important for the job ({base_importance:.0%}). "
+                    f"Model signals: People with your skills often learn this "
+                    f"(confidence: {details.get('confidence', 0):.0%}, "
+                    f"lift: {details.get('lift', 0):.1f}x). "
+                    f"Sources: {sources_str}."
+                )
+            else:
+                explanation = (
+                    f"Important for the job ({base_importance:.0%}). "
+                    f"No model signals available for this skill."
+                )
+            
+            skill_scores[skill] = {
+                'base_importance': base_importance,
+                'model_score': model_score,
+                'final_score': final_score,
+                'sources': sources,
+                'details': details,
+                'explanation': explanation
+            }
+        
+        except Exception:
+            # If anything fails for a single skill, add a default entry
+            base_importance = gap_importance.get(skill, 0.5)
+            skill_scores[skill] = {
+                'base_importance': base_importance,
+                'model_score': 0.0,
+                'final_score': base_importance,
+                'sources': [],
+                'details': {},
+                'explanation': f"Important for the job ({base_importance:.0%}). (Scoring failed, using gap analysis)"
+            }
+    
+    return skill_scores
+
+
+def _create_learning_phases(
+    sorted_skills: List[Tuple[str, Dict]],
+    max_phases: int = 5
+) -> List[Dict]:
+    """
+    Group sorted skills into learning phases.
+    
+    Phases are named:
+    - Phase 1: Foundation Skills
+    - Phase 2: Core Competencies
+    - Phase 3: Intermediate Skills
+    - Phase 4: Advanced Techniques
+    - Phase 5: Expert Level
+    
+    Each skill takes ~1.5 weeks per estimated complexity.
+    """
+    phase_names = [
+        "Foundation Skills",
+        "Core Competencies",
+        "Intermediate Skills",
+        "Advanced Techniques",
+        "Expert Level"
+    ]
+    
+    phase_difficulties = [
+        "Easy",
+        "Easy-Medium",
+        "Medium",
+        "Medium-Hard",
+        "Hard"
+    ]
+    
+    phases = []
+    if not sorted_skills:
+        return phases
+    
+    # Distribute skills across phases
+    skills_per_phase = max(1, len(sorted_skills) // max_phases)
+    
+    for phase_idx in range(min(max_phases, len(sorted_skills))):
+        start_idx = phase_idx * skills_per_phase
+        end_idx = (
+            (phase_idx + 1) * skills_per_phase
+            if phase_idx < max_phases - 1
+            else len(sorted_skills)
+        )
+        
+        phase_skills_list = sorted_skills[start_idx:end_idx]
+        
+        if not phase_skills_list:
+            continue
+        
+        # Format skill data for this phase
+        skills_data = []
+        for skill_name, skill_info in phase_skills_list:
+            skills_data.append({
+                'name': skill_name.title(),
+                'final_score': skill_info['final_score'],
+                'base_importance': skill_info['base_importance'],
+                'model_score': skill_info['model_score'],
+                'sources': skill_info['sources'],
+                'explanation': skill_info['explanation']
+            })
+        
+        phase = {
+            'phase_number': phase_idx + 1,
+            'title': phase_names[phase_idx] if phase_idx < len(phase_names) else f"Phase {phase_idx + 1}",
+            'difficulty': phase_difficulties[phase_idx] if phase_idx < len(phase_difficulties) else "Hard",
+            'skills': skills_data,
+            'duration_weeks': int(len(phase_skills_list) * 1.5),  # ~1.5 weeks per skill
+        }
+        
+        phases.append(phase)
+    
+    return phases

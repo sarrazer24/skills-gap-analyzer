@@ -2,16 +2,22 @@
 Optimized Skill Extractor Module
 
 Extracts skills from text with:
-- Fast regex patterns with word boundaries
+- LLM-powered extraction (OpenAI) when enabled
+- Fast regex patterns with word boundaries as fallback
 - Fuzzy matching for variations
 - Confidence scoring based on frequency and context
 """
 
 import pandas as pd
 import re
+import json
+import logging
+import os
 from typing import List, Tuple, Optional, Dict, Set
 from pathlib import Path
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 
 class SkillExtractor:
@@ -104,6 +110,8 @@ class SkillExtractor:
         """
         Extract skills from text with confidence scoring.
         
+        Uses LLM extraction if enabled and api_key is provided, falls back to pattern matching.
+        
         Args:
             text: Text to search for skills
             return_confidence: If True, return list of (skill, confidence) tuples
@@ -115,6 +123,18 @@ class SkillExtractor:
         if not text or len(text) < 10:
             return []
         
+        # TRY LLM EXTRACTION FIRST if enabled
+        if self.use_llm and self.api_key:
+            try:
+                llm_results = self._extract_with_llm(text, return_confidence)
+                if llm_results:
+                    logger.info(f"✓ LLM extraction succeeded: found {len(llm_results)} skills")
+                    return llm_results
+            except Exception as e:
+                logger.warning(f"⚠️ LLM extraction failed ({e}). Falling back to pattern matching.")
+        
+        # FALLBACK: Pattern matching (regex-based)
+        logger.info("Using pattern matching extraction")
         found_skills = {}
         text_lower = text.lower()
         text_length = len(text)
@@ -164,6 +184,106 @@ class SkillExtractor:
             return sorted(found_skills.items(), key=lambda x: x[1], reverse=True)
         else:
             return list(found_skills.keys())
+    
+    def _extract_with_llm(self, text: str, return_confidence: bool = False) -> Optional[List[Tuple[str, float]]]:
+        """Extract skills using OpenAI API.
+        
+        Uses same robust key lookup as test_simple.py:
+        - Checks OPENAI_API_KEY environment variable
+        - Checks OPEN_API_KEY environment variable (fallback)
+        
+        Args:
+            text: Text to extract skills from
+            return_confidence: Return confidence scores
+            
+        Returns:
+            List of (skill, confidence) tuples or None if LLM fails
+        """
+        try:
+            from openai import OpenAI
+            
+            # Get API key with same logic as test_simple.py
+            api_key = self.api_key
+            if not api_key:
+                # Check environment variables (same logic as test_simple.py)
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if not api_key:
+                    api_key = os.environ.get("OPEN_API_KEY")
+            
+            if not api_key:
+                logger.error("❌ No OpenAI API key found in OPENAI_API_KEY or OPEN_API_KEY environment")
+                return None
+            
+            # Initialize client using modern SDK (same as test_simple.py)
+            client = OpenAI(api_key=api_key)
+            
+            # Build skill list for prompt (sample if too long)
+            skill_sample = self.skills_list[:50] if len(self.skills_list) > 50 else self.skills_list
+            skill_list_text = ", ".join(skill_sample)
+            if len(self.skills_list) > 50:
+                skill_list_text += f"... (and {len(self.skills_list) - 50} more)"
+            
+            prompt = f"""You are a technical skill extractor. Extract all technical skills from the given text.
+
+AVAILABLE SKILLS (match only these):
+{skill_list_text}
+
+TEXT TO ANALYZE:
+{text[:2000]}  {'...(truncated)' if len(text) > 2000 else ''}
+
+INSTRUCTIONS:
+1. Extract only skills that appear in the AVAILABLE SKILLS list
+2. If a skill variation is mentioned (e.g., "Node" for "node.js"), match to the full skill name
+3. Return ONLY a JSON object with no additional text
+
+Return format:
+{{"extracted_skills": ["skill1", "skill2", ...], "extraction_method": "llm"}}"""
+
+            # Use modern client.chat.completions.create() (same as test_simple.py)
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Extract technical skills. Return only JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500,
+                timeout=10
+            )
+
+            response_text = response.choices[0].message.content.strip()
+            logger.debug(f"OpenAI response: {response_text}")
+            
+            # Parse JSON response
+            result = json.loads(response_text)
+            extracted = result.get("extracted_skills", [])
+            
+            if not extracted:
+                logger.info("LLM returned no skills")
+                return None
+            
+            # Normalize and filter to available skills
+            extracted_normalized = []
+            for skill in extracted:
+                skill_lower = skill.lower().strip()
+                # Check if this skill (or a variation) is in our available skills
+                for available_skill in self.skills_list:
+                    if available_skill.lower() == skill_lower:
+                        extracted_normalized.append(available_skill)
+                        break
+            
+            if return_confidence:
+                # LLM results get high confidence (0.85) since they're model-validated
+                return [(skill.lower().strip(), 0.85) for skill in extracted_normalized]
+            else:
+                return [skill.lower().strip() for skill in extracted_normalized]
+        
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ LLM extraction error: {type(e).__name__}: {e}")
+            return None
     
     def extract_batch(self, texts: List[str], return_confidence: bool = False) -> List[List[Tuple[str, float]]]:
         """Extract skills from multiple texts efficiently
