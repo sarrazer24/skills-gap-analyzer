@@ -461,39 +461,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Section title styling for consistent typography and subtle underline
-st.markdown(f"""
-<style>
-    .section-title {{
-        font-size: 1.4rem;
-        font-weight: 700;
-        margin: 0.6rem 0 0.4rem 0;
-        color: {colors['text_primary']};
-        letter-spacing: -0.01em;
-    }}
-    .section-sub {{
-        font-size: 0.94rem;
-        color: {colors['text_secondary']};
-        margin-bottom: 0.6rem;
-    }}
-    .section-accent {{
-        height: 3px;
-        width: 120px;
-        margin-top: 8px;
-        background: linear-gradient(90deg, {colors['accent_tertiary']}, {colors['accent_primary']});
-        border-radius: 999px;
-        opacity: 0.95;
-    }}
-    .card-grid {{
-        display:flex; flex-wrap:wrap; gap:12px; align-items:stretch;
-    }}
-    .card-grid .card {{
-        flex: 1 1 calc(33% - 12px); min-width:160px; box-sizing:border-box;
-    }}
-    @media (max-width: 900px) {{
-        .card-grid .card {{ flex-basis: calc(50% - 12px); }}
-    }}
-</style>
-""", unsafe_allow_html=True)
+
 # Header with modern gradient and professional branding
 col1, col2, col3 = st.columns([1, 0.05, 0.15])
 
@@ -1185,6 +1153,11 @@ if st.session_state.user_skills and st.session_state.selected_job:
     # EXPANDER 2: Missing Skills
     with st.expander("❌ Skills You Need", expanded=True):
         if missing:
+            # Define fallback colors for the exception handler
+            missing_bg = '#f3f4f6'
+            missing_border = '#6b7280'
+            missing_title = '#374151'
+            
             # Use SkillMatcher for optimized gap analysis
             from src.models.skill_matcher import SkillMatcher
             from src.data.loader import DataLoader
@@ -1372,17 +1345,24 @@ if st.session_state.user_skills and st.session_state.selected_job:
                 low_title = '#15803d' if st.session_state.get('theme', 'dark') != 'dark' else '#0a4e1a'
                 low_sub = '#166534' if st.session_state.get('theme', 'dark') != 'dark' else '#0a4e1a'
                 
+                # Add CSS for card grid
+                st.markdown("""
+                <style>
+                .card-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                    gap: 16px;
+                    margin-top: 12px;
+                    margin-bottom: 24px;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
                 if high_priority:
                     st.markdown("##### 🔴 Critical — Learn first")
                     cards_html = '<div class="card-grid">'
                     for skill in high_priority:
-                        cards_html += f"""
-                        <div class="card">
-                            <div style="background: {critical_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {critical_border}; height: 100%;">
-                                <div style="font-weight: 600; color: {critical_title} !important;">{skill.title()}</div>
-                            </div>
-                        </div>
-                        """
+                        cards_html += f'<div class="card"><div style="background: {critical_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {critical_border}; height: 100%;"><div style="font-weight: 600; color: {critical_title} !important;">{skill.title()}</div></div></div>'
                     cards_html += '</div>'
                     st.markdown(cards_html, unsafe_allow_html=True)
                 
@@ -1390,13 +1370,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     st.markdown("##### 🟡 Important — Learn after critical")
                     cards_html = '<div class="card-grid">'
                     for skill in med_priority:
-                        cards_html += f"""
-                        <div class="card">
-                            <div style="background: {med_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {med_border}; height: 100%;">
-                                <div style="font-weight: 600; color: {med_title} !important;">{skill.title()}</div>
-                            </div>
-                        </div>
-                        """
+                        cards_html += f'<div class="card"><div style="background: {med_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {med_border}; height: 100%;"><div style="font-weight: 600; color: {med_title} !important;">{skill.title()}</div></div></div>'
                     cards_html += '</div>'
                     st.markdown(cards_html, unsafe_allow_html=True)
                 
@@ -1404,13 +1378,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
                     st.markdown("##### 🟢 Nice to have — Learn if time permits")
                     cards_html = '<div class="card-grid">'
                     for skill in low_priority:
-                        cards_html += f"""
-                        <div class="card">
-                            <div style="background: {low_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {low_border}; height: 100%;">
-                                <div style="font-weight: 600; color: {low_title} !important;">{skill.title()}</div>
-                            </div>
-                        </div>
-                        """
+                        cards_html += f'<div class="card"><div style="background: {low_bg}; border-radius: 8px; padding: 12px; border-left: 4px solid {low_border}; height: 100%;"><div style="font-weight: 600; color: {low_title} !important;">{skill.title()}</div></div></div>'
                     cards_html += '</div>'
                     st.markdown(cards_html, unsafe_allow_html=True)
 
@@ -1427,7 +1395,7 @@ if st.session_state.user_skills and st.session_state.selected_job:
                         """, unsafe_allow_html=True)
         else:
             st.success("✅ You have all the required skills!")
-    
+
     # EXPANDER 3: Extra Skills
     with st.expander("📊 Additional Skills You Have", expanded=False):
         if extra:
