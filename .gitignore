@@ -1,20 +1,32 @@
-# Large data files (keep on Kaggle/Local)
-data/raw/
-*.csv
-!data/sample_jobs.csv
-!data/sample_skills.csv
+# ===========================================
+# EXCLUDE ALL LARGE/MEDIUM CSV FILES
+# ===========================================
 
-# ML model outputs (too large)
+# Exclude all CSV files by default
+*.csv
+
+# Then specifically include the small ones
+!data/processed/association_rules_categories.csv
+!data/processed/association_rules_skills.csv
+!data/processed/job_skill_mapping.csv
+!data/processed/skills_enriched.csv
+
+# Include any other small CSV files in specific folders
+!data/sample_*.csv
+!data/test_*.csv
+!data/*.sample.csv
+
+# ===========================================
+# OTHER EXCLUSIONS
+# ===========================================
 *.pkl
 !app/models/association_model.pkl
 !app/models/clustering_model.pkl
 
-# Notebook outputs
 notebooks/*.csv
-notebooks/*.pkl
 notebooks/*.png
+notebooks/*.pkl
 
-# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -28,37 +40,19 @@ env/
 dist/
 build/
 
-# Jupyter
 .ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Streamlit
 .streamlit/secrets.toml
-
-# Environment
 .env
-
-# Temporary files
 *.tmp
 *.temp
 *~
-.DS_Store/
-
-# pytest and coverage
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Cache directories
 .cache/
-.env

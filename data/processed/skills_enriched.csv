@@ -1,0 +1,83 @@
+skill,category,difficulty,estimated_weeks,estimated_hours,priority_score,priority_level,courses,num_courses
+excel,programming,Easy,3,120,0.965,Critical,"Udemy excel, Coursera excel",2
+teamwork,programming,Easy,2,80,0.757,Critical,"Udemy teamwork, Coursera teamwork",2
+leadership,programming,Easy,8,320,0.747,High,"Udemy leadership, Coursera leadership",2
+problem solving,programming,Medium,6,240,0.736,High,"Udemy problem solving, Coursera problem solving",2
+time management,soft_skills,Easy,2,80,0.727,High,"Udemy time management, Coursera time management",2
+communication,programming,Easy,4,160,0.711,High,"Udemy communication, Coursera communication",2
+angular,programming,Hard,12,480,0.5,Medium,"Udemy angular, Coursera angular",2
+agile,soft_skills,Easy,2,80,0.5,Medium,"Udemy agile, Coursera agile",2
+aws,cloud,Medium,10,400,0.5,Medium,"AWS Training & Certification, A Cloud Guru, Linux Academy AWS",4
+ansible,devops,Medium,6,240,0.5,Medium,"Udemy ansible, Coursera ansible",2
+cassandra,programming,Hard,10,400,0.5,Medium,"Udemy cassandra, Coursera cassandra",2
+computer vision,programming,Hard,18,720,0.5,Medium,"Udemy computer vision, Coursera computer vision",2
+deep learning,programming,Hard,20,800,0.5,Medium,"Udemy deep learning, Coursera deep learning",2
+css,programming,Easy,2,80,0.5,Medium,"Udemy css, Coursera css",2
+azure,programming,Medium,10,400,0.5,Medium,"Udemy azure, Coursera azure",2
+c#,programming,Hard,12,480,0.5,Medium,"Udemy c#, Coursera c#",2
+c++,programming,Hard,16,640,0.5,Medium,"Udemy c++, Coursera c++",2
+asp.net,other,Hard,6,240,0.5,Medium,"Udemy asp.net, Coursera asp.net",2
+elasticsearch,programming,Medium,6,240,0.5,Medium,"Udemy elasticsearch, Coursera elasticsearch",2
+dynamodb,databases,Medium,4,160,0.5,Medium,"Udemy dynamodb, Coursera dynamodb",2
+docker,programming,Medium,6,240,0.5,Medium,"Docker Official Documentation, Pluralsight Docker, Udemy Docker Mastery",4
+django,programming,Medium,10,400,0.5,Medium,"Udemy django, Coursera django",2
+github,devops,Easy,2,80,0.5,Medium,"Udemy github, Coursera github",2
+fastapi,other,Medium,6,240,0.5,Medium,"Udemy fastapi, Coursera fastapi",2
+gcp,programming,Medium,10,400,0.5,Medium,"Udemy gcp, Coursera gcp",2
+flask,web_development,Easy,6,240,0.5,Medium,"Udemy flask, Coursera flask",2
+hive,other,Medium,8,320,0.5,Medium,"Udemy hive, Coursera hive",2
+html,web_development,Easy,1,40,0.5,Medium,"Udemy html, Coursera html",2
+java,programming,Hard,12,480,0.5,Medium,"Udemy java, Coursera java",2
+javascript,programming,Medium,10,400,0.5,Medium,"MDN Web Docs, Codecademy JavaScript, Udemy JavaScript",4
+jenkins,devops,Medium,6,240,0.5,Medium,"Udemy jenkins, Coursera jenkins",2
+gitlab,devops,Medium,4,160,0.5,Medium,"Udemy gitlab, Coursera gitlab",2
+go,programming,Hard,10,400,0.5,Medium,"Udemy go, Coursera go",2
+git,devops,Easy,2,80,0.5,Medium,"GitHub Learning, Codecademy Git, Udemy Git",4
+kotlin,programming,Medium,6,240,0.5,Medium,"Udemy kotlin, Coursera kotlin",2
+kubernetes,programming,Hard,12,480,0.5,Medium,"Linux Foundation CKA, Kubernetes Official, Pluralsight K8s",4
+linux,tools,Medium,8,320,0.5,Medium,"Udemy linux, Coursera linux",2
+looker,programming,Medium,6,240,0.5,Medium,"Udemy looker, Coursera looker",2
+machine learning,programming,Hard,16,640,0.5,Medium,"Fast.ai ML, Coursera ML by Andrew Ng, Kaggle ML Competitions",4
+mapreduce,programming,Hard,10,400,0.5,Medium,"Udemy mapreduce, Coursera mapreduce",2
+matplotlib,other,Easy,6,240,0.5,Medium,"Udemy matplotlib, Coursera matplotlib",2
+mongodb,programming,Easy,4,160,0.5,Medium,"Udemy mongodb, Coursera mongodb",2
+mysql,databases,Easy,4,160,0.5,Medium,"Udemy mysql, Coursera mysql",2
+nlp,machine_learning,Hard,16,640,0.5,Medium,"Udemy nlp, Coursera nlp",2
+node.js,web_development,Medium,8,320,0.5,Medium,"Udemy node.js, Coursera node.js",2
+numpy,data_science,Easy,3,120,0.5,Medium,"Udemy numpy, Coursera numpy",2
+oracle,programming,Hard,12,480,0.5,Medium,"Udemy oracle, Coursera oracle",2
+jira,programming,Easy,2,80,0.5,Medium,"Udemy jira, Coursera jira",2
+keras,programming,Hard,8,320,0.5,Medium,"Udemy keras, Coursera keras",2
+hadoop,other,Hard,14,560,0.5,Medium,"Udemy hadoop, Coursera hadoop",2
+pig,other,Medium,6,240,0.5,Medium,"Udemy pig, Coursera pig",2
+php,programming,Medium,6,240,0.5,Medium,"Udemy php, Coursera php",2
+pandas,data_science,Easy,4,160,0.5,Medium,"Udemy pandas, Coursera pandas",2
+plotly,other,Easy,6,240,0.5,Medium,"Udemy plotly, Coursera plotly",2
+project management,programming,Medium,6,240,0.5,Medium,"Udemy project management, Coursera project management",2
+python,programming,Medium,8,320,0.5,Medium,"Codecademy Python, Real Python, Coursera Python for Data Science",4
+postgresql,programming,Easy,4,160,0.5,Medium,"Udemy postgresql, Coursera postgresql",2
+power bi,programming,Easy,4,160,0.5,Medium,"Udemy power bi, Coursera power bi",2
+r,programming,Medium,8,320,0.5,Medium,"Udemy r, Coursera r",2
+react,programming,Medium,8,320,0.5,Medium,"React Official Documentation, Codecademy React, Scrimba React",4
+redis,programming,Medium,3,120,0.5,Medium,"Udemy redis, Coursera redis",2
+ruby,programming,Easy,6,240,0.5,Medium,"Udemy ruby, Coursera ruby",2
+rust,programming,Hard,14,560,0.5,Medium,"Udemy rust, Coursera rust",2
+scala,programming,Hard,6,240,0.5,Medium,"Udemy scala, Coursera scala",2
+pytorch,programming,Hard,12,480,0.5,Medium,"Udemy pytorch, Coursera pytorch",2
+qlik,other,Medium,6,240,0.5,Medium,"Udemy qlik, Coursera qlik",2
+scikit-learn,programming,Medium,6,240,0.5,Medium,"Udemy scikit-learn, Coursera scikit-learn",2
+scala spark,programming,Hard,6,240,0.5,Medium,"Udemy scala spark, Coursera scala spark",2
+scipy,programming,Medium,6,240,0.5,Medium,"Udemy scipy, Coursera scipy",2
+scrum,programming,Easy,2,80,0.5,Medium,"Udemy scrum, Coursera scrum",2
+sql,databases,Easy,3,120,0.5,Medium,"Khan Academy SQL, Mode Analytics SQL, Udemy SQL",4
+sqlite,databases,Easy,2,80,0.5,Medium,"Udemy sqlite, Coursera sqlite",2
+spark,programming,Hard,12,480,0.5,Medium,"Udemy spark, Coursera spark",2
+spring,programming,Hard,6,240,0.5,Medium,"Udemy spring, Coursera spring",2
+swift,programming,Medium,6,240,0.5,Medium,"Udemy swift, Coursera swift",2
+statsmodels,other,Medium,6,240,0.5,Medium,"Udemy statsmodels, Coursera statsmodels",2
+tensorflow,programming,Hard,12,480,0.5,Medium,"Udemy tensorflow, Coursera tensorflow",2
+tableau,tools,Easy,4,160,0.5,Medium,"Tableau Official Training, Udemy Tableau, Pluralsight Tableau",4
+terraform,programming,Medium,8,320,0.5,Medium,"Udemy terraform, Coursera terraform",2
+unix,other,Medium,8,320,0.5,Medium,"Udemy unix, Coursera unix",2
+vba,tools,Medium,4,160,0.5,Medium,"Udemy vba, Coursera vba",2
+vue,web_development,Medium,6,240,0.5,Medium,"Udemy vue, Coursera vue",2
